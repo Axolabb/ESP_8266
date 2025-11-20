@@ -191,7 +191,7 @@ void smoothEdit(int data)
 }
 
 bool wifi_is_founding = false;
-void wifi_lost()
+void wifi_connecting_debug()
 {
   if (!wifi_is_founding)
   {
@@ -268,20 +268,9 @@ void setup()
 
   _print("Подключаемся к WiFI: ");
   _println(wifi_ssid);
-  WiFi.config(local_IP, gateway, subnet, primaryDNS);
+  WiFi.config(local_IP, subnet, primaryDNS);
   WiFi.begin(wifi_ssid, wifi_password);
-  while (WiFi.status() != WL_CONNECTED) // Коннектимся к вф
-  {
-    _println("Connecting...");
-    digitalWrite(2, LOW);
-    delay(250);
-    digitalWrite(2, HIGH);
-    delay(250);
-  }
-  _print("IP адрес: ");
-  _println(WiFi.localIP());
-  _print("GateWay адрес: ");
-  _println(WiFi.gatewayIP());
+  wifi_connecting_debug();
   // if(MDNS.begin(host_dns)) { ОТЛОЖЕНО
   //   _print("А также доступно по адресу: http://");
   //   _print(host_dns);
@@ -307,7 +296,7 @@ void loop()
 {
   if (WiFi.status() != WL_CONNECTED)
   {
-    wifi_lost();
+    wifi_connecting_debug();
   }
   else
   {
