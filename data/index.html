@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #303030;
+        color: #333;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+      }
+
+      .wrapper {
+        background: #eaeaea;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        max-width: 400px;
+      }
+
+      h1 {
+        margin-bottom: 15px;
+        color: #0077cc;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        margin: 20px 0;
+        -webkit-appearance: none;
+        background: transparent;
+      }
+
+      input[type="range"]::-webkit-slider-runnable-track {
+        height: 8px;
+        background: linear-gradient(90deg, #0077cc, #00cc88);
+        border-radius: 4px;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 20px;
+        height: 20px;
+        background: #fff;
+        border: 2px solid #0077cc;
+        border-radius: 50%;
+        cursor: pointer;
+        margin-top: -6px;
+        transition: 0.2s;
+      }
+
+      input[type="range"]::-webkit-slider-thumb:hover {
+        background: #0077cc;
+        border-color: #005fa3;
+      }
+
+      .val {
+        font-size: 1.2em;
+        font-weight: bold;
+        color: #00cc88;
+      }
+
+      #ip-address {
+        display: block;
+        margin-top: 15px;
+        font-size: 0.9em;
+        color: #666;
+      }
+    </style>
+    <title>Document</title>
+  </head>
+  <body>
+    <div class="wrapper text">
+      <h1>Привет от ESP8266 🚀</h1>
+      <p>Эта страница загружена из файловой системы <b>LittleFS</b>.</p>
+      <p>Ползунок управляет яркостью светодиода:</p>
+      <input
+        type="range"
+        id="brightness"
+        min="0"
+        max="100"
+        value="0"
+        onchange="fetchFunc('bright', this.value);"
+      />
+      <span class="val">0</span><span style="color: #00cc88;">%</span>
+      <p class="val1"></p>
+      <!-- <span id="ip-address">IP: 192.168.1.100</span> -->
+    </div>
+    <script>
+      const el = document.querySelector(".val");
+
+
+      function fetchFunc(name, data) {
+        if (name == "bright") {
+          el.textContent = data; // Решить проблему с странной херней
+          fetch("/bright?value=" + el.textContent)
+            .then((response) => response.text())
+            .then((data) => console.log("Ответ сервера:", data))
+            .catch((error) => console.error("Ошибка:", error));
+        }
+      }
+    </script>
+  </body>
+</html>

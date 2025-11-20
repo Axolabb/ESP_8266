@@ -1,0 +1,24 @@
+// .vscode/tasks.json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Upload LittleFS", 
+            "type": "shell",
+            "command": "python -m platformio run --target uploadfs", // <-- ИСПОЛЬЗУЕМ "python -m platformio"
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
+            },
+            "options": {
+                "shell": {
+                    "executable": "cmd.exe", // Оставляем CMD, так как он более надежен
+                    "args": [
+                        "/c" 
+                    ]
+                }
+            },
+            "problemMatcher": []
+        }
+    ]
+}
