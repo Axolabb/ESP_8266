@@ -41,7 +41,7 @@ WiFi_Device wifi_devices[]{
     {"password", "12348765", 10, 196, 183, 10},
 };
 
-int choise_wifi = 1; // Предвывор активного вайфай подключения. Типо к чему будет линкаться ESP при включении (цель)
+int choise_wifi = 0; // Предвывор активного вайфай подключения. Типо к чему будет линкаться ESP при включении (цель)
 // 0 = "xgio2016"
 // 1 = "password"
 // ...
@@ -255,6 +255,7 @@ void setup()
   _println("");
   Serial.begin(115200);
   pinMode(2, OUTPUT);
+  
   if (LittleFS.begin())
   {
     _println("LittleFS смонтирован и готов работать");
@@ -268,7 +269,7 @@ void setup()
 
   _print("Подключаемся к WiFI: ");
   _println(wifi_ssid);
-  WiFi.config(local_IP, subnet, primaryDNS);
+  // WiFi.config(local_IP);
   WiFi.begin(wifi_ssid, wifi_password);
   wifi_connecting_debug();
   // if(MDNS.begin(host_dns)) { ОТЛОЖЕНО
