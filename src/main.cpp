@@ -4,6 +4,8 @@
 #include <ESP8266WebServer.h> // WebServer
 #include <ArduinoOTA.h>       // Для Over‑The‑Air аплоада
 // #include <ESP8266mDNS.h>      // Для мини-днс локального
+#include <Wire.h>    // Для I2C шины
+#include <U8g2lib.h> // Для работы с дисплеем
 // ---------------------------------------- ИМПОРТЫ -> МАКРОСЫ  ---------------------------------------------------
 #define DEBUG 1 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
 #if DEBUG
@@ -14,7 +16,7 @@
 #define _println(x)
 #endif
 
-
+#define array_lenght(x) (int)(sizeof(x) / sizeof((x)[0])) // Нельзя создать динамическую функцию прям для всех типов массивов
 // ---------------------------------------------- МАКРОСЫ -> КОД ---------------------------------------------
 
 // ------ Структуры (Схемы массива) -------
@@ -30,6 +32,14 @@ struct WiFi_Device
 };
 
 // -------- Глобальные переменные  --------
+
+const int key_input_button_pins[] = {D5, D6, D7, D0};
+// const int key_input_general_pins[];
+// const int key_output_pins[] = {LED_BUILTIN};
+
+long lastOpenTime[array_lenght(key_input_button_pins)] = {0};
+
+const long minOpenTime = 100;
 
 int oldAW = 255;
 bool loopik_is_ended = true;
@@ -60,7 +70,22 @@ ESP8266WebServer server(80); // Порт в скобках
 
 const char *host_dns = "esp8266"; // днс домен + ОТА хост. ПОКА ОТКЛАДЫВАЕМ мДНС
 
+U8G2_SSD1315_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
+/* На русском - работа с U8G2 на модели SSD1315 (128X64) Без имени.
+С режимом работы фулл буфера (Вся картинка хранится в RAM микроконтроллера),
+Интерфейс подключения: Hardware I²C. Первый атрибут U8G2_R0 - без поворота те 0 градусов.
+Второй U8X8_PIN_NONE - Это параметр для пина сброса (reset) дисплея.
+
+*/
 // -------- Глобальные переменные END --------
+
+// --------- UI ----------
+
+int text_height = 14;
+int maxHeight = 64;
+int maxWeight = 128;
+
+const char *main_tools[] = {"Saved WiFI", "Test_root", "Test_root", "Test_root"};
 
 // ------------------- FLASH  -----------------
 char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами
@@ -198,20 +223,84 @@ void wifi_connecting_debug()
   if (!wifi_is_founding)
   {
     wifi_is_founding = true;
+    // int vector = 1; // Меняем говнокод на лаконичный остаток от деления
+    int counter = 0;
     while (WiFi.status() != WL_CONNECTED)
     {
+      u8g2.clearBuffer();
+      u8g2.setCursor(0, 10);
+      u8g2.println("Connecting to: ");
+      u8g2.setCursor(0, 25);
+      u8g2.println(wifi_ssid);
+      u8g2.setCursor(0, 40);
+      // if (counter >= 1 && vector == 1)
+      // {
+      //   counter++;
+      // }
+      // else if (counter <= 3 && vector == -1)
+      // {
+      //   counter--;
+      // }
+      counter++;
+      for (int i = counter % 3 + 1; i > 0; i--)
+      {
+        u8g2.print('.');
+      }
+      // if (counter == 1)
+      // {
+      //   vector = 1;
+      // }
+      // else if (counter == 3)
+      // {
+      //   vector = -1;
+      // }
+      u8g2.sendBuffer();
       _println("Connecting...");
       digitalWrite(2, LOW);
       delay(250);
       digitalWrite(2, HIGH);
       delay(250);
     }
+    // IPAddress ip = WiFi.localIP();
+    // for (int i = ip[3]; i > 0; i--) {
+    //   digitalWrite(2, LOW);
+    //   delay(500);
+    //   digitalWrite(2, HIGH);
+    //   delay(500);
+    // };
+    u8g2.clearBuffer();
+    u8g2.setCursor(0, 10);
+    u8g2.println("Connected!");
+    u8g2.setCursor(0, 25);
+    u8g2.println("Your local IP:");
+    u8g2.setCursor(0, 40);
+    u8g2.println(WiFi.localIP());
+    u8g2.sendBuffer();
     _print("IP адрес: ");
     _println(WiFi.localIP());
     _print("GateWay адрес: ");
     _println(WiFi.gatewayIP());
     wifi_is_founding = false;
   }
+}
+
+bool isPressedKey(int index)
+{
+  // LOW = нажата тк заземляется
+  int stateReading = digitalRead(key_input_button_pins[index]);
+  if (stateReading == LOW)
+  {
+    if ((millis() - lastOpenTime[index]) > minOpenTime)
+    {
+      lastOpenTime[index] = millis();
+      return true;
+    }
+  }
+  else
+  {
+    return false;
+  }
+  return false;
 }
 
 // ----------------------- ВЕБ СЕРВЕР ФУНКЦИИ ----------------------------------
@@ -254,26 +343,25 @@ void bright_handle()
 // Учитываем, что стринг может забивать РАМ в долгосроке. Вместо них в будущем для оптимизации юзать С-строки. Плюсом потом еще неблок. код юзать
 void setup()
 {
-  _println("");
+  u8g2.begin();                       // OLED
+  u8g2.setFont(u8g2_font_ncenB14_tr); // Фонт - ncen → New Century Schoolbook (семейство шрифта). B - bold. 14 - size. tr - прозрачный фон transparent
+  // u8g2_font_micro_tr.  u8g2_font_unifont_t_symbols. u8g2_font_4x6_tr. u8g2_font_ncenB14_tr
+  // text_height = u8g2.getMaxCharHeight();
   Serial.begin(115200);
-  pinMode(2, OUTPUT);
-  
+  pinMode(LED_BUILTIN, OUTPUT);
+  for (int i = 0; i < array_lenght(key_input_button_pins); i++)
+  {
+    pinMode(key_input_button_pins[i], INPUT_PULLUP);
+  }
   if (LittleFS.begin())
   {
     _println("LittleFS смонтирован и готов работать");
     flash_is_avialable = true;
   }
-  else
-  {
-    _println("LittleFS не смонтирован");
-  }
-  _println("ESP is ready!");
-
   _print("Подключаемся к WiFI: ");
   _println(wifi_ssid);
   // WiFi.config(local_IP);
-  WiFi.begin(wifi_ssid, wifi_password);
-  wifi_connecting_debug();
+
   // if(MDNS.begin(host_dns)) { ОТЛОЖЕНО
   //   _print("А также доступно по адресу: http://");
   //   _print(host_dns);
@@ -285,21 +373,57 @@ void setup()
 
   ArduinoOTA.setHostname(host_dns);
   ArduinoOTA.begin();
-
-  String percent_data = FlashEdit("/percentOn.txt", "", -1, 'r');
-  if (percent_data != "")
-  {
-    int int_data = percent_data.toInt();
-    oldAW = int_data;
-    analogWrite(2, (255 - int_data * 255 / 100));
-  }
 }
 
+int x_test = 0;
+int y_test = 0;
 void loop()
 {
+  u8g2.clearBuffer();
+  for (int i = 0; i < array_lenght(main_tools); i++)
+  {
+    int separator = 0;
+    if (i != 0)
+    {
+      separator = 3;
+    }
+    u8g2.setCursor(0, text_height * (i + 1) + separator);
+    u8g2.print(main_tools[i]);
+    u8g2.drawLine(0, text_height * (i + 1) + separator, u8g2.getStrWidth(main_tools[i]), text_height * (i + 1) + separator);
+  }
+  u8g2.drawLine(127, 0, 127, 63);
+  u8g2.sendBuffer();
+  if (isPressedKey(0))
+  {
+    x_test += 10;
+    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
+    _println("Key * is pressed");
+    u8g2.sendBuffer();
+  }
+  if (isPressedKey(1))
+  {
+    x_test -= 10;
+    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
+    _println("Key # is pressed");
+    u8g2.sendBuffer();
+  }
+  if (isPressedKey(2))
+  {
+    y_test += 10;
+    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
+    _println("Key ˅ is pressed");
+    u8g2.sendBuffer();
+  }
+  if (isPressedKey(3))
+  {
+    y_test -= 10; // Тк игрик сверху вниз идет
+    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
+    _println("Key ^ is pressed");
+    u8g2.sendBuffer();
+  }
   if (WiFi.status() != WL_CONNECTED)
   {
-    wifi_connecting_debug();
+    // wifi_connecting_debug();
   }
   else
   {
@@ -308,26 +432,10 @@ void loop()
     server.handleClient(); // Обработка веб сервера
   }
 
-  if (Serial.available() && loopik_is_ended == true)
-  {
-    // _print(Serial.read() - '0');
-    int x = Serial.parseInt();
-
-    if (x >= 0 && x <= 100)
-    {
-      smoothEdit(255 - (255 * x) / 100);
-      // FlashEdit("/percentOn.txt", String(x), 'w');
-      FlashEdit("/percentOn.txt", "", x, 'w');
-      // FlashEdit("/percentOn.txt", "", -1, 'r');
-    }
-  }
-  while (Serial.available() > 0)
-  {
-    Serial.read();
-  }
+  delay(100);
 }
 
-/* ----------------------- Commented Blocks of code  ----------------------------------
+/* ----------------------- Unuse Commented Blocks of code  ----------------------------------
 
 1 - Дыхание
  // while (true)
@@ -365,5 +473,34 @@ Dir dir = LittleFS.openDir("/");
     _println("Пусто брат");
   }
 
+  4 - Работа с консолью
+
+ if (Serial.available() && loopik_is_ended == true)
+  {
+    // _print(Serial.read() - '0');
+    int x = Serial.parseInt();
+
+    if (x >= 0 && x <= 100)
+    {
+      smoothEdit(255 - (255 * x) / 100);
+      // FlashEdit("/percentOn.txt", String(x), 'w');
+      FlashEdit("/percentOn.txt", "", x, 'w');
+      // FlashEdit("/percentOn.txt", "", -1, 'r');
+    }
+  }
+  while (Serial.available() > 0)
+  {
+    Serial.read();
+  }
+
+  5 - работа с флешем
+
+ String percent_data = FlashEdit("/percentOn.txt", "", -1, 'r');
+ if (percent_data != "")
+ {
+   int int_data = percent_data.toInt();
+   oldAW = int_data;
+   analogWrite(2, (255 - int_data * 255 / 100));
+ }
 
 */
