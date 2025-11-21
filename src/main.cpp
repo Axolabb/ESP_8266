@@ -85,7 +85,7 @@ int text_height = 14;
 int maxHeight = 64;
 int maxWeight = 128;
 
-const char *main_tools[] = {"Saved WiFI", "Test_root", "Test_root", "Test_root"};
+const char *main_tools[] = {"Saved WiFI", "Scan WiFi", "Settings", "AI mode", "Camera", "StorageFS", "StorageSD", "Restart", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot"};
 
 // ------------------- FLASH  -----------------
 char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами
@@ -375,54 +375,64 @@ void setup()
   ArduinoOTA.begin();
 }
 
-int x_test = 0;
-int y_test = 0;
+int scrollUnitY = 0;
+int scrollUnitYCounter = 0;
 void loop()
 {
   u8g2.clearBuffer();
-  for (int i = 0; i < array_lenght(main_tools); i++)
+
+  u8g2.drawLine(0, text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4), u8g2.getStrWidth(main_tools[scrollUnitY]), text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4));
+
+  for (int i = 0; i < (array_lenght(main_tools) - 4 * scrollUnitYCounter); i++)
   {
     int separator = 0;
     if (i != 0)
     {
-      separator = 3;
+      separator = 2;
     }
-    u8g2.setCursor(0, text_height * (i + 1) + separator);
-    u8g2.print(main_tools[i]);
-    u8g2.drawLine(0, text_height * (i + 1) + separator, u8g2.getStrWidth(main_tools[i]), text_height * (i + 1) + separator);
+    if (i == 0)
+    {
+      u8g2.setCursor(0, text_height * (i + 1));
+    }
+    else
+    {
+      u8g2.setCursor(0, text_height * (i + 1) + separator * i);
+    }
+    u8g2.print(main_tools[i+4*scrollUnitYCounter]);
   }
   u8g2.drawLine(127, 0, 127, 63);
   u8g2.sendBuffer();
-  if (isPressedKey(0))
+  if (isPressedKey(0)) // *
   {
-    x_test += 10;
-    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
-    _println("Key * is pressed");
-    u8g2.sendBuffer();
   }
-  if (isPressedKey(1))
+  if (isPressedKey(1)) // #
   {
-    x_test -= 10;
-    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
-    _println("Key # is pressed");
-    u8g2.sendBuffer();
   }
-  if (isPressedKey(2))
+  if (isPressedKey(2)) // ˅
   {
-    y_test += 10;
-    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
-    _println("Key ˅ is pressed");
-    u8g2.sendBuffer();
+    if (scrollUnitY < array_lenght(main_tools) - 1) // из за индексации
+    {
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0) {
+        scrollUnitYCounter++;
+        _println(scrollUnitYCounter);
+      }
+      scrollUnitY++; 
+    }
   }
-  if (isPressedKey(3))
+  if (isPressedKey(3)) // ^
   {
-    y_test -= 10; // Тк игрик сверху вниз идет
-    u8g2.drawCircle(x_test, y_test, 5, U8G2_DRAW_ALL);
-    _println("Key ^ is pressed");
-    u8g2.sendBuffer();
+    if (scrollUnitY > 0)
+    {
+      scrollUnitY--;
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0) {
+        scrollUnitYCounter--;
+        _println(scrollUnitYCounter);
+      }
+    }
   }
   if (WiFi.status() != WL_CONNECTED)
   {
+
     // wifi_connecting_debug();
   }
   else
