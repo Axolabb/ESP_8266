@@ -6,6 +6,7 @@
 // #include <ESP8266mDNS.h>      // Для мини-днс локального
 #include <Wire.h>    // Для I2C шины
 #include <U8g2lib.h> // Для работы с дисплеем
+#include <string.h>  // Для сравнивания С-строк
 // ---------------------------------------- ИМПОРТЫ -> МАКРОСЫ  ---------------------------------------------------
 #define DEBUG 1 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
 #if DEBUG
@@ -16,7 +17,7 @@
 #define _println(x)
 #endif
 
-#define array_lenght(x) (int)(sizeof(x) / sizeof((x)[0])) // Нельзя создать динамическую функцию прям для всех типов массивов
+#define array_length(x) (int)(sizeof(x) / sizeof((x)[0])) // Нельзя создать динамическую функцию прям для всех типов массивов
 // ---------------------------------------------- МАКРОСЫ -> КОД ---------------------------------------------
 
 // ------ Структуры (Схемы массива) -------
@@ -31,13 +32,22 @@ struct WiFi_Device
   // const int host_gateway;              //(xxx.xxx.xxx.X) - для выхода в инет - итак кончается на 1 у всех тк что не нужен
 };
 
+enum MenuType
+{ // Вместо интов непонятных типа мейн это ноль и тд
+  NONE,
+  MAIN,
+  WIFI_DIR,
+  STORAGE_FS,
+};
+MenuType activeMenu = MAIN; // Дефолт
+
 // -------- Глобальные переменные  --------
 
 const int key_input_button_pins[] = {D5, D6, D7, D0};
 // const int key_input_general_pins[];
 // const int key_output_pins[] = {LED_BUILTIN};
 
-long lastOpenTime[array_lenght(key_input_button_pins)] = {0};
+long lastOpenTime[array_length(key_input_button_pins)] = {0};
 
 const long minOpenTime = 100;
 
@@ -80,12 +90,141 @@ U8G2_SSD1315_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 // -------- Глобальные переменные END --------
 
 // --------- UI ----------
+int scrollUnitY = 0;
+int scrollUnitYCounter = 0;
 
 int text_height = 14;
-int maxHeight = 64;
-int maxWeight = 128;
+// int maxHeight = 64;
+// int maxWeight = 128;
 
-const char *main_tools[] = {"Saved WiFI", "Scan WiFi", "Settings", "AI mode", "Camera", "StorageFS", "StorageSD", "Restart", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot", "Reboot"};
+void editDir(MenuType name) {
+  scrollUnitY = 0;
+  scrollUnitYCounter = 0;
+  activeMenu = name;
+}
+
+bool isPressedKey(int index)
+{
+  // LOW = нажата тк заземляется
+  int stateReading = digitalRead(key_input_button_pins[index]);
+  if (stateReading == LOW)
+  {
+    if ((millis() - lastOpenTime[index]) > minOpenTime)
+    {
+      lastOpenTime[index] = millis();
+      return true;
+    }
+  }
+  else
+  {
+    return false;
+  }
+  return false;
+}
+
+struct UIDir
+{
+  const char *name;
+  void (*function)(MenuType);
+  MenuType type;
+};
+
+// --------- UI FUNCTIONS ------------
+
+
+
+
+// const char *main_tools[] = {"Saved WiFI", "Scan WiFi", "Settings", "AI mode", "Camera", "StorageFS", "StorageSD", "Restart", "Reboot"};
+
+// const char *Saved_WiFi[] = {"Home WiFi", "Office WiFi", "Guest WiFi"};
+
+UIDir WIFI[] = {
+    {"Saved WiFi", editDir, NONE},
+    {"Scan WiFi", editDir, NONE},
+};
+
+UIDir StorageFS[] = {
+    {"Read File", editDir, NONE},
+    {"Delete File", editDir, NONE}};
+
+UIDir dirs[] = { // MAIN
+    {"WiFi", editDir, WIFI_DIR},
+    {"StorageFS", editDir, STORAGE_FS}};
+
+void displayTools(UIDir array[], int length)
+{ // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
+  u8g2.clearBuffer();
+  u8g2.drawLine(0, text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4), u8g2.getStrWidth(array[scrollUnitY].name), text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4));
+  for (int i = 0; i < (length - 4 * scrollUnitYCounter); i++)
+  {
+    int separator = 0;
+    if (i != 0)
+    {
+      separator = 2;
+    }
+    if (i == 0)
+    {
+      u8g2.setCursor(0, text_height * (i + 1));
+    }
+    else
+    {
+      u8g2.setCursor(0, text_height * (i + 1) + separator * i);
+    }
+    u8g2.print(array[i + 4 * scrollUnitYCounter].name);
+  }
+  u8g2.drawLine(127, scrollUnitYCounter * (63 * 4 / length), 127, (63 * 4 / length) + scrollUnitYCounter * (63 * 4 / length)); // Скролл бар
+  u8g2.sendBuffer();
+
+  if (isPressedKey(0)) // *
+  {
+    array[scrollUnitY].function(array[scrollUnitY].type);
+  }
+  if (isPressedKey(1)) // #
+  {
+    activeMenu = MAIN;
+  }
+  if (isPressedKey(2)) // ˅
+  {
+    if (scrollUnitY < length - 1) // из за индексации
+    {
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
+      {
+        scrollUnitYCounter++;
+      }
+      scrollUnitY++;
+    }
+  }
+  if (isPressedKey(3)) // ^
+  {
+    if (scrollUnitY > 0)
+    {
+      scrollUnitY--;
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
+      {
+        scrollUnitYCounter--;
+      }
+    }
+  }
+}
+
+void displayMenu(MenuType menu)
+{
+  switch (menu)
+  {
+  case MAIN:
+    displayTools(dirs, array_length(dirs));
+    break;
+  case WIFI_DIR:
+    displayTools(WIFI, array_length(WIFI));
+    break;
+  case STORAGE_FS:
+    displayTools(StorageFS, array_length(StorageFS));
+    break;
+  case NONE:
+    displayTools(dirs, array_length(dirs));
+    break;
+  }
+}
 
 // ------------------- FLASH  -----------------
 char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами
@@ -191,31 +330,7 @@ String FlashEdit(const char *path, const char *message_string, const int message
 
 // ------------------- Функции  -----------------
 
-void smoothEdit(int data)
-{
-  loopik_is_ended = false;
-  if (data > oldAW)
-  {
-    for (int x = oldAW; x <= data; x++)
-    {
-      analogWrite(2, x);
-      delay(2);
-    }
-  }
-  else
-  {
-    for (int x = oldAW; x >= data; x--)
-    {
-      analogWrite(2, x);
-      delay(2);
-    }
-  }
-  _print("Светодиод включен на ");
-  _print(100 - (data * 100) / 255);
-  _println("%");
-  oldAW = data;
-  loopik_is_ended = true;
-}
+
 
 bool wifi_is_founding = false;
 void wifi_connecting_debug()
@@ -233,14 +348,6 @@ void wifi_connecting_debug()
       u8g2.setCursor(0, 25);
       u8g2.println(wifi_ssid);
       u8g2.setCursor(0, 40);
-      // if (counter >= 1 && vector == 1)
-      // {
-      //   counter++;
-      // }
-      // else if (counter <= 3 && vector == -1)
-      // {
-      //   counter--;
-      // }
       counter++;
       for (int i = counter % 3 + 1; i > 0; i--)
       {
@@ -261,13 +368,6 @@ void wifi_connecting_debug()
       digitalWrite(2, HIGH);
       delay(250);
     }
-    // IPAddress ip = WiFi.localIP();
-    // for (int i = ip[3]; i > 0; i--) {
-    //   digitalWrite(2, LOW);
-    //   delay(500);
-    //   digitalWrite(2, HIGH);
-    //   delay(500);
-    // };
     u8g2.clearBuffer();
     u8g2.setCursor(0, 10);
     u8g2.println("Connected!");
@@ -282,25 +382,6 @@ void wifi_connecting_debug()
     _println(WiFi.gatewayIP());
     wifi_is_founding = false;
   }
-}
-
-bool isPressedKey(int index)
-{
-  // LOW = нажата тк заземляется
-  int stateReading = digitalRead(key_input_button_pins[index]);
-  if (stateReading == LOW)
-  {
-    if ((millis() - lastOpenTime[index]) > minOpenTime)
-    {
-      lastOpenTime[index] = millis();
-      return true;
-    }
-  }
-  else
-  {
-    return false;
-  }
-  return false;
 }
 
 // ----------------------- ВЕБ СЕРВЕР ФУНКЦИИ ----------------------------------
@@ -349,7 +430,7 @@ void setup()
   // text_height = u8g2.getMaxCharHeight();
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
-  for (int i = 0; i < array_lenght(key_input_button_pins); i++)
+  for (int i = 0; i < array_length(key_input_button_pins); i++)
   {
     pinMode(key_input_button_pins[i], INPUT_PULLUP);
   }
@@ -375,61 +456,11 @@ void setup()
   ArduinoOTA.begin();
 }
 
-int scrollUnitY = 0;
-int scrollUnitYCounter = 0;
+// String* name_tools = other_tools;
 void loop()
 {
-  u8g2.clearBuffer();
+  displayMenu(activeMenu);
 
-  u8g2.drawLine(0, text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4), u8g2.getStrWidth(main_tools[scrollUnitY]), text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4));
-
-  for (int i = 0; i < (array_lenght(main_tools) - 4 * scrollUnitYCounter); i++)
-  {
-    int separator = 0;
-    if (i != 0)
-    {
-      separator = 2;
-    }
-    if (i == 0)
-    {
-      u8g2.setCursor(0, text_height * (i + 1));
-    }
-    else
-    {
-      u8g2.setCursor(0, text_height * (i + 1) + separator * i);
-    }
-    u8g2.print(main_tools[i+4*scrollUnitYCounter]);
-  }
-  u8g2.drawLine(127, 0, 127, 63);
-  u8g2.sendBuffer();
-  if (isPressedKey(0)) // *
-  {
-  }
-  if (isPressedKey(1)) // #
-  {
-  }
-  if (isPressedKey(2)) // ˅
-  {
-    if (scrollUnitY < array_lenght(main_tools) - 1) // из за индексации
-    {
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0) {
-        scrollUnitYCounter++;
-        _println(scrollUnitYCounter);
-      }
-      scrollUnitY++; 
-    }
-  }
-  if (isPressedKey(3)) // ^
-  {
-    if (scrollUnitY > 0)
-    {
-      scrollUnitY--;
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0) {
-        scrollUnitYCounter--;
-        _println(scrollUnitYCounter);
-      }
-    }
-  }
   if (WiFi.status() != WL_CONNECTED)
   {
 
@@ -512,5 +543,33 @@ Dir dir = LittleFS.openDir("/");
    oldAW = int_data;
    analogWrite(2, (255 - int_data * 255 / 100));
  }
+
+6 - Аналоговый райт и светодиод
+
+void smoothEdit(int data)
+{
+  loopik_is_ended = false;
+  if (data > oldAW)
+  {
+    for (int x = oldAW; x <= data; x++)
+    {
+      analogWrite(2, x);
+      delay(2);
+    }
+  }
+  else
+  {
+    for (int x = oldAW; x >= data; x--)
+    {
+      analogWrite(2, x);
+      delay(2);
+    }
+  }
+  _print("Светодиод включен на ");
+  _print(100 - (data * 100) / 255);
+  _println("%");
+  oldAW = data;
+  loopik_is_ended = true;
+}
 
 */
