@@ -7,20 +7,10 @@
 #include <Wire.h>    // Для I2C шины
 #include <U8g2lib.h> // Для работы с дисплеем
 #include <string.h>  // Для сравнивания С-строк
-// ---------------------------------------- ИМПОРТЫ -> МАКРОСЫ  ---------------------------------------------------
-#define DEBUG 1 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
-#if DEBUG
-#define _print(x) Serial.print(x)
-#define _println(x) Serial.println(x)
-#else
-#define _print(x)
-#define _println(x)
-#endif
+#include <stdio.h>   // Для сравнивания С-строк
 
-#define array_length(x) (int)(sizeof(x) / sizeof((x)[0])) // Нельзя создать динамическую функцию прям для всех типов массивов
-// ---------------------------------------------- МАКРОСЫ -> КОД ---------------------------------------------
+// ------ Структуры (Схемы массива) и др -------
 
-// ------ Структуры (Схемы массива) -------
 struct WiFi_Device
 {                   // Схема для обьекта ВайФай
   const char *ssid; // Название внешней точки доступа
@@ -33,48 +23,79 @@ struct WiFi_Device
 };
 
 enum MenuType
-{ // Вместо интов непонятных типа мейн это ноль и тд
+{ // Вместо интов непонятных интов. типа мейн это ноль и тд
   NONE,
   MAIN,
   WIFI_DIR,
   STORAGE_FS,
+  WEB,
+  OTA,
+  WIFI_SAVED
 };
-MenuType activeMenu = MAIN; // Дефолт
+
+struct UIDir
+{
+  const char *name;
+  void (*edit)(MenuType); // Смена ДИРа
+  MenuType type;          // Тайп для смена ДИРа
+  void (*function)();     // Функциональная
+};
+
+// ---------------------------------------- РАННИЕ ОБЬЯВЛЕНИЯ ФУНКЦИЙ ДЛЯ КРАСОТЫ КОДА И РЕШЕНИЯ ПРОБЛЕМ КУРИЦА-ЯЙЦО  ---------------------------------------------------
+
+void load_saved_wifi();
+void certain_wifi_link();
+void checkWifiStatus();
+void checkWebStatus();
+void checkOTAStatus();
+void wifi_connecting_debug();
+void editDir(MenuType name);
+
+// ---------------------------------------- ИМПОРТЫ -> МАКРОСЫ  ---------------------------------------------------
+
+#define DEBUG 1 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
+#if DEBUG
+#define _print(x) Serial.print(x)
+#define _println(x) Serial.println(x)
+#else
+#define _print(x)
+#define _println(x)
+#endif
+
+#define array_length(x) (int)(sizeof(x) / sizeof((x)[0])) // Нельзя создать динамическую функцию прям для всех типов массивов
+
+// ---------------------------------------------- МАКРОСЫ -> КОД ---------------------------------------------
+
+
 
 // -------- Глобальные переменные  --------
+
+MenuType activeMenu = MAIN; // Дефолт
 
 const int key_input_button_pins[] = {D5, D6, D7, D0};
 // const int key_input_general_pins[];
 // const int key_output_pins[] = {LED_BUILTIN};
 
-long lastOpenTime[array_length(key_input_button_pins)] = {0};
+long lastOpenTime[array_length(key_input_button_pins)] = {0}; // Чтобы норм регать клики без дублей
 
-const long minOpenTime = 100;
+const long minOpenTime = 100; // Минимальный интервал при зажатии и будет дубликат
 
-int oldAW = 255;
-bool loopik_is_ended = true;
+// int oldAW = 255;
+// bool loopik_is_ended = true;
 
 bool flash_is_avialable = false;
 
 // Массив вайфаев
 
 WiFi_Device wifi_devices[]{
-    {"xgio2016", "smile123", 192, 168, 1, 39},
+    {"xgio2016", "smile123", 192, 168, 1, 39}, // название пароль предпочитаемый айпи
     {"password", "12348765", 10, 196, 183, 10},
 };
 
-int choise_wifi = 0; // Предвывор активного вайфай подключения. Типо к чему будет линкаться ESP при включении (цель)
-// 0 = "xgio2016"
-// 1 = "password"
-// ...
-
-const char *wifi_ssid = wifi_devices[choise_wifi].ssid;
-const char *wifi_password = wifi_devices[choise_wifi].password;
-
-IPAddress local_IP(wifi_devices[choise_wifi].network_class, wifi_devices[choise_wifi].range_of_private_addreses, wifi_devices[choise_wifi].subnet, wifi_devices[choise_wifi].host); // Желаемый айпишник ESP самого (Для днс и раздетльного туннеолирования)
-IPAddress gateway(wifi_devices[choise_wifi].network_class, wifi_devices[choise_wifi].range_of_private_addreses, wifi_devices[choise_wifi].subnet, 1);                               // Роутер
-IPAddress subnet(255, 255, 255, 0);                                                                                                                                                 // Маска подсети
-IPAddress primaryDNS(8, 8, 8, 8);                                                                                                                                                   // Google DNS
+// IPAddress local_IP(wifi_devices[choise_wifi].network_class, wifi_devices[choise_wifi].range_of_private_addreses, wifi_devices[choise_wifi].subnet, wifi_devices[choise_wifi].host); // Желаемый айпишник ESP самого (Для днс и раздетльного туннеолирования)
+// IPAddress gateway(wifi_devices[choise_wifi].network_class, wifi_devices[choise_wifi].range_of_private_addreses, wifi_devices[choise_wifi].subnet, 1);                               // Роутер
+// IPAddress subnet(255, 255, 255, 0);                                                                                                                                                 // Маска подсети
+// IPAddress primaryDNS(8, 8, 8, 8);                                                                                                                                                   // Google DNS
 
 ESP8266WebServer server(80); // Порт в скобках
 
@@ -87,144 +108,23 @@ U8G2_SSD1315_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 Второй U8X8_PIN_NONE - Это параметр для пина сброса (reset) дисплея.
 
 */
+
+char statusBuffer[20]; // Буффер для дисплея статуса в UI
+
+const char *wifi = nullptr;  // false/ssid  ----- Для чек статуса в мейн дире
+const char *isweb = nullptr; // false/ip  ----- Для чек статуса в мейн дире
+const char *isOTA = nullptr; // false/true  ----- Для чек статуса в мейн дире
+
 // -------- Глобальные переменные END --------
 
-// --------- UI ----------
-int scrollUnitY = 0;
-int scrollUnitYCounter = 0;
+// --------- UI VARS ----------
+
+int scrollUnitY = 0;        // Сколько раз сниз клик
+int scrollUnitYCounter = 0; // Сколько дисплеев прокручено
 
 int text_height = 14;
 // int maxHeight = 64;
 // int maxWeight = 128;
-
-void editDir(MenuType name) {
-  scrollUnitY = 0;
-  scrollUnitYCounter = 0;
-  activeMenu = name;
-}
-
-bool isPressedKey(int index)
-{
-  // LOW = нажата тк заземляется
-  int stateReading = digitalRead(key_input_button_pins[index]);
-  if (stateReading == LOW)
-  {
-    if ((millis() - lastOpenTime[index]) > minOpenTime)
-    {
-      lastOpenTime[index] = millis();
-      return true;
-    }
-  }
-  else
-  {
-    return false;
-  }
-  return false;
-}
-
-struct UIDir
-{
-  const char *name;
-  void (*function)(MenuType);
-  MenuType type;
-};
-
-// --------- UI FUNCTIONS ------------
-
-
-
-
-// const char *main_tools[] = {"Saved WiFI", "Scan WiFi", "Settings", "AI mode", "Camera", "StorageFS", "StorageSD", "Restart", "Reboot"};
-
-// const char *Saved_WiFi[] = {"Home WiFi", "Office WiFi", "Guest WiFi"};
-
-UIDir WIFI[] = {
-    {"Saved WiFi", editDir, NONE},
-    {"Scan WiFi", editDir, NONE},
-};
-
-UIDir StorageFS[] = {
-    {"Read File", editDir, NONE},
-    {"Delete File", editDir, NONE}};
-
-UIDir dirs[] = { // MAIN
-    {"WiFi", editDir, WIFI_DIR},
-    {"StorageFS", editDir, STORAGE_FS}};
-
-void displayTools(UIDir array[], int length)
-{ // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
-  u8g2.clearBuffer();
-  u8g2.drawLine(0, text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4), u8g2.getStrWidth(array[scrollUnitY].name), text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4));
-  for (int i = 0; i < (length - 4 * scrollUnitYCounter); i++)
-  {
-    int separator = 0;
-    if (i != 0)
-    {
-      separator = 2;
-    }
-    if (i == 0)
-    {
-      u8g2.setCursor(0, text_height * (i + 1));
-    }
-    else
-    {
-      u8g2.setCursor(0, text_height * (i + 1) + separator * i);
-    }
-    u8g2.print(array[i + 4 * scrollUnitYCounter].name);
-  }
-  u8g2.drawLine(127, scrollUnitYCounter * (63 * 4 / length), 127, (63 * 4 / length) + scrollUnitYCounter * (63 * 4 / length)); // Скролл бар
-  u8g2.sendBuffer();
-
-  if (isPressedKey(0)) // *
-  {
-    array[scrollUnitY].function(array[scrollUnitY].type);
-  }
-  if (isPressedKey(1)) // #
-  {
-    activeMenu = MAIN;
-  }
-  if (isPressedKey(2)) // ˅
-  {
-    if (scrollUnitY < length - 1) // из за индексации
-    {
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
-      {
-        scrollUnitYCounter++;
-      }
-      scrollUnitY++;
-    }
-  }
-  if (isPressedKey(3)) // ^
-  {
-    if (scrollUnitY > 0)
-    {
-      scrollUnitY--;
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
-      {
-        scrollUnitYCounter--;
-      }
-    }
-  }
-}
-
-void displayMenu(MenuType menu)
-{
-  switch (menu)
-  {
-  case MAIN:
-    displayTools(dirs, array_length(dirs));
-    break;
-  case WIFI_DIR:
-    displayTools(WIFI, array_length(WIFI));
-    break;
-  case STORAGE_FS:
-    displayTools(StorageFS, array_length(StorageFS));
-    break;
-  case NONE:
-    displayTools(dirs, array_length(dirs));
-    break;
-  }
-}
 
 // ------------------- FLASH  -----------------
 char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами
@@ -328,61 +228,7 @@ String FlashEdit(const char *path, const char *message_string, const int message
   return "";
 }
 
-// ------------------- Функции  -----------------
-
-
-
-bool wifi_is_founding = false;
-void wifi_connecting_debug()
-{
-  if (!wifi_is_founding)
-  {
-    wifi_is_founding = true;
-    // int vector = 1; // Меняем говнокод на лаконичный остаток от деления
-    int counter = 0;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      u8g2.clearBuffer();
-      u8g2.setCursor(0, 10);
-      u8g2.println("Connecting to: ");
-      u8g2.setCursor(0, 25);
-      u8g2.println(wifi_ssid);
-      u8g2.setCursor(0, 40);
-      counter++;
-      for (int i = counter % 3 + 1; i > 0; i--)
-      {
-        u8g2.print('.');
-      }
-      // if (counter == 1)
-      // {
-      //   vector = 1;
-      // }
-      // else if (counter == 3)
-      // {
-      //   vector = -1;
-      // }
-      u8g2.sendBuffer();
-      _println("Connecting...");
-      digitalWrite(2, LOW);
-      delay(250);
-      digitalWrite(2, HIGH);
-      delay(250);
-    }
-    u8g2.clearBuffer();
-    u8g2.setCursor(0, 10);
-    u8g2.println("Connected!");
-    u8g2.setCursor(0, 25);
-    u8g2.println("Your local IP:");
-    u8g2.setCursor(0, 40);
-    u8g2.println(WiFi.localIP());
-    u8g2.sendBuffer();
-    _print("IP адрес: ");
-    _println(WiFi.localIP());
-    _print("GateWay адрес: ");
-    _println(WiFi.gatewayIP());
-    wifi_is_founding = false;
-  }
-}
+// ------------------- Функции локальные -----------------
 
 // ----------------------- ВЕБ СЕРВЕР ФУНКЦИИ ----------------------------------
 
@@ -420,7 +266,246 @@ void bright_handle()
 
 // ----------------------- ВЕБ СЕРВЕР ФУНКЦИИ END ----------------------------------
 
+// -------------- UI Functions + Dirs ---------------------
+
+UIDir dirs[] = { // MAIN
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"StorageFS", editDir, STORAGE_FS, nullptr},
+    {"Web Server", editDir, WEB, checkWebStatus},
+    {"OTA Upload", editDir, OTA, checkOTAStatus}};
+UIDir WIFI_saved[array_length(wifi_devices) + 1] = {
+    {"Status: ", nullptr, NONE, nullptr}};
+
+UIDir WIFI[] = {
+    {"Status: ", nullptr, NONE, nullptr},
+    {"Saved WiFi", editDir, WIFI_SAVED, load_saved_wifi},
+    {"Scan WiFi", nullptr, NONE, nullptr},
+};
+UIDir StorageFS[] = {
+    {"Read File", nullptr, NONE, nullptr},
+    {"Delete File", nullptr, NONE, nullptr}};
+UIDir WebServer[] = {
+    {"Status: ", nullptr, NONE, nullptr},
+    {"Open/close", nullptr, NONE, nullptr},
+};
+UIDir OTA_dir[] = {
+    {"Status: ", nullptr, NONE, nullptr},
+    {"Lock/unlock", nullptr, NONE, nullptr},
+};
+
+void editDir(MenuType name)
+{
+  scrollUnitY = 0;
+  scrollUnitYCounter = 0;
+  activeMenu = name;
+}
+
+bool isPressedKey(int index)
+{
+  // LOW = нажата тк заземляется
+  int stateReading = digitalRead(key_input_button_pins[index]);
+  if (stateReading == LOW)
+  {
+    if ((millis() - lastOpenTime[index]) > minOpenTime)
+    {
+      lastOpenTime[index] = millis();
+      return true;
+    }
+  }
+  else
+  {
+    return false;
+  }
+  return false;
+}
+
+void certain_wifi_link()
+{
+  for (int i = 0; i < array_length(wifi_devices); i++)
+  {
+    if (strcmp(wifi_devices[i].ssid, WIFI_saved[scrollUnitY].name) == 0 /* cmp - для сравнивания. Если 0 = то что надо*/)
+    {
+      WiFi.begin(wifi_devices[i].ssid, wifi_devices[i].password);
+      wifi_connecting_debug();
+    }
+  }
+  WiFi.begin();
+}
+
+void load_saved_wifi()
+{
+  for (int i = 0; i < array_length(wifi_devices); i++)
+  {
+    WIFI_saved[i + 1] = {wifi_devices[i].ssid, nullptr, NONE, certain_wifi_link}; // Так как 0 - статус
+  }
+  checkWifiStatus();
+} // wifi_connecting_debug
+
+void checkWifiStatus()
+{
+  const char *statusAssemleText = nullptr;
+  if (wifi)
+  {
+    strcpy(statusBuffer, "S: "); // Перезаписать первую строку
+    strcat(statusBuffer, wifi);  // Добавить. Цель - соединить 2 переменные чара
+    statusAssemleText = statusBuffer;
+  };
+  const char *status = wifi ? statusAssemleText : "S: No WiFI";
+  WIFI[0] = {status, nullptr, NONE, nullptr};
+  WIFI_saved[0] = {status, nullptr, NONE, nullptr};
+}
+
+void checkWebStatus()
+{
+  const char *statusAssemleText = nullptr;
+  if (isweb)
+  {
+    strcpy(statusBuffer, "S: ");
+    strcat(statusBuffer, isweb);
+    statusAssemleText = statusBuffer;
+  };
+  const char *status = isweb ? statusAssemleText : "S: Closed";
+  WebServer[0] = {status, nullptr, NONE, nullptr};
+}
+
+void checkOTAStatus()
+{
+  const char *status = isOTA ? "S: Enabled" : "S: Disabled";
+  OTA_dir[0] = {status, nullptr, NONE, nullptr};
+}
+
+void displayTools(UIDir array[], int length)
+{ // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
+  u8g2.clearBuffer();
+  u8g2.drawLine(0, text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4), u8g2.getStrWidth(array[scrollUnitY].name), text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4));
+  for (int i = 0; i < (length - 4 * scrollUnitYCounter); i++)
+  {
+    int separator = 0;
+    if (i != 0)
+    {
+      separator = 2;
+    }
+    if (i == 0)
+    {
+      u8g2.setCursor(0, text_height * (i + 1));
+    }
+    else
+    {
+      u8g2.setCursor(0, text_height * (i + 1) + separator * i);
+    }
+    u8g2.print(array[i + 4 * scrollUnitYCounter].name);
+  }
+  u8g2.drawLine(127, scrollUnitYCounter * (63 * 4 / length), 127, (63 * 4 / length) + scrollUnitYCounter * (63 * 4 / length)); // Скролл бар
+  u8g2.sendBuffer();
+
+  if (isPressedKey(0)) // *
+  {
+    if (array[scrollUnitY].function)
+    {
+      array[scrollUnitY].function();
+    }
+    if (array[scrollUnitY].edit)
+    {
+      array[scrollUnitY].edit(array[scrollUnitY].type);
+    }
+  }
+  if (isPressedKey(1)) // #
+  {
+    activeMenu = MAIN;
+    scrollUnitY = 0;
+    scrollUnitYCounter = 0;
+  }
+  if (isPressedKey(2)) // ˅
+  {
+    if (scrollUnitY < length - 1) // из за индексации
+    {
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
+      {
+        scrollUnitYCounter++;
+      }
+      scrollUnitY++;
+    }
+  }
+  if (isPressedKey(3)) // ^
+  {
+    if (scrollUnitY > 0)
+    {
+      scrollUnitY--;
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
+      {
+        scrollUnitYCounter--;
+      }
+    }
+  }
+}
+
+void displayMenu(MenuType menu)
+{
+  switch (menu)
+  {
+  case MAIN:
+    displayTools(dirs, array_length(dirs));
+    break;
+  case WIFI_DIR:
+    displayTools(WIFI, array_length(WIFI));
+    break;
+  case STORAGE_FS:
+    displayTools(StorageFS, array_length(StorageFS));
+    break;
+  case WEB:
+    displayTools(WebServer, array_length(WebServer));
+    break;
+  case OTA:
+    displayTools(OTA_dir, array_length(OTA_dir));
+    break;
+  case WIFI_SAVED:
+    displayTools(WIFI_saved, array_length(WIFI_saved));
+    break;
+  case NONE:
+    break;
+  }
+}
+
+bool wifi_is_finding = false;
+void wifi_connecting_debug()
+{
+  if (!wifi_is_finding)
+  {
+    wifi_is_finding = true;
+    // int vector = 1; // Меняем говнокод на лаконичный остаток от деления
+    int counter = 0;
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      u8g2.clearBuffer();
+      u8g2.setCursor(0, 14);
+      u8g2.println("Connecting to: ");
+      u8g2.setCursor(0, 28);
+      u8g2.println(wifi);
+      u8g2.setCursor(0, 42);
+      counter++;
+      for (int i = counter % 3 + 1; i > 0; i--)
+      {
+        u8g2.print('.');
+      }
+      u8g2.sendBuffer();
+      _println("Connecting...");
+      digitalWrite(2, LOW);
+      delay(250);
+      digitalWrite(2, HIGH);
+      delay(250);
+    }
+    checkWifiStatus();
+    wifi = WiFi.localIP().toString().c_str(); // IPAddress -> toString -> С-строка
+    _print("IP адрес: ");
+    _println(WiFi.localIP());
+    _print("GateWay адрес: ");
+    _println(WiFi.gatewayIP());
+    wifi_is_finding = false;
+  }
+}
+
 // ------------------- Начало программы и луп  -----------------
+
 // Учитываем, что стринг может забивать РАМ в долгосроке. Вместо них в будущем для оптимизации юзать С-строки. Плюсом потом еще неблок. код юзать
 void setup()
 {
@@ -439,10 +524,9 @@ void setup()
     _println("LittleFS смонтирован и готов работать");
     flash_is_avialable = true;
   }
-  _print("Подключаемся к WiFI: ");
-  _println(wifi_ssid);
+  // _print("Подключаемся к WiFI: ");
+  // _println(wifi_ssid);
   // WiFi.config(local_IP);
-
   // if(MDNS.begin(host_dns)) { ОТЛОЖЕНО
   //   _print("А также доступно по адресу: http://");
   //   _print(host_dns);
@@ -460,19 +544,9 @@ void setup()
 void loop()
 {
   displayMenu(activeMenu);
-
-  if (WiFi.status() != WL_CONNECTED)
-  {
-
-    // wifi_connecting_debug();
-  }
-  else
-  {
-    // MDNS.update();         // Обработка ДНС. ОТЛОЖЕНО
-    ArduinoOTA.handle();   // Обработка ОТА аплоадов
-    server.handleClient(); // Обработка веб сервера
-  }
-
+  // MDNS.update();         // Обработка ДНС. ОТЛОЖЕНО
+  ArduinoOTA.handle();   // Обработка ОТА аплоадов
+  server.handleClient(); // Обработка веб сервера
   delay(100);
 }
 
