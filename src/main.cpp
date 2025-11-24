@@ -30,7 +30,11 @@ enum MenuType
   STORAGE_FS,
   WEB,
   OTA,
-  WIFI_SAVED
+  WIFI_SAVED,
+  WIFI_SCANNED,
+  StorageFS_D,
+  StorageFS_R,
+  StorageFS_R_F
 };
 
 struct UIDir
@@ -48,12 +52,17 @@ void certain_wifi_link();
 void checkWifiStatus();
 void checkWebStatus();
 void checkOTAStatus();
-void wifi_connecting_debug();
+void wifi_connecting_debug(const char *ssid);
 void editDir(MenuType name);
+void webEditStatus();
+void OTAEditStatus();
+void scan_wifi();
+void wifi_disconnect();
+void openFileSystem();
 
 // ---------------------------------------- ИМПОРТЫ -> МАКРОСЫ  ---------------------------------------------------
 
-#define DEBUG 1 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
+#define DEBUG 0 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
 #if DEBUG
 #define _print(x) Serial.print(x)
 #define _println(x) Serial.println(x)
@@ -66,11 +75,18 @@ void editDir(MenuType name);
 
 // ---------------------------------------------- МАКРОСЫ -> КОД ---------------------------------------------
 
-
-
 // -------- Глобальные переменные  --------
 
 MenuType activeMenu = MAIN; // Дефолт
+
+struct DirectoryRoute
+{
+  MenuType previousActiveMenu;
+  int activeUnitY;
+};
+
+DirectoryRoute directories[5] = { // Для истории по # и *
+    {MAIN, 0}};
 
 const int key_input_button_pins[] = {D5, D6, D7, D0};
 // const int key_input_general_pins[];
@@ -113,21 +129,20 @@ char statusBuffer[20]; // Буффер для дисплея статуса в U
 
 const char *wifi = nullptr;  // false/ssid  ----- Для чек статуса в мейн дире
 const char *isweb = nullptr; // false/ip  ----- Для чек статуса в мейн дире
-const char *isOTA = nullptr; // false/true  ----- Для чек статуса в мейн дире
+String isweb_stringed;       // false/ip  ----- Для чек статуса в мейн дире
+bool isOTA = false;          // false/true  ----- Для чек статуса в мейн дире
+
+const char *actualWifiSSID;
+const char *actualWifiPassword;
+
+String scan_wifi_stringed[51];
+String file_system_stringed[12];
+String read_file_stringed;
 
 // -------- Глобальные переменные END --------
 
-// --------- UI VARS ----------
-
-int scrollUnitY = 0;        // Сколько раз сниз клик
-int scrollUnitYCounter = 0; // Сколько дисплеев прокручено
-
-int text_height = 14;
-// int maxHeight = 64;
-// int maxWeight = 128;
-
 // ------------------- FLASH  -----------------
-char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами
+char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами. Учитываем что 64 - максимальный размер передаваемого инта
 
 String FlashEdit(const char *path, const char *message_string, const int message_int, char mode)
 {
@@ -155,6 +170,9 @@ String FlashEdit(const char *path, const char *message_string, const int message
       break;
     case 'w':
       search_mode = "w";
+      break;
+    case 'd':
+      search_mode = "d";
       break;
 
     default:
@@ -219,6 +237,10 @@ String FlashEdit(const char *path, const char *message_string, const int message
     // if (mode == "r+")
     // {
     // }
+    if (mode == 'd')
+    {
+      LittleFS.remove(path);
+    }
     file.close();
   }
   else
@@ -268,30 +290,42 @@ void bright_handle()
 
 // -------------- UI Functions + Dirs ---------------------
 
+int scrollUnitY = 0;        // Сколько раз сниз клик
+int scrollUnitYCounter = 0; // Сколько дисплеев прокручено
+
+int text_height = 14;
+// int maxHeight = 64;
+// int maxWeight = 128;
+
 UIDir dirs[] = { // MAIN
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
     {"StorageFS", editDir, STORAGE_FS, nullptr},
     {"Web Server", editDir, WEB, checkWebStatus},
     {"OTA Upload", editDir, OTA, checkOTAStatus}};
-UIDir WIFI_saved[array_length(wifi_devices) + 1] = {
-    {"Status: ", nullptr, NONE, nullptr}};
 
+UIDir WIFI_scanned[51] = { // Допустим максимум 50 точек
+    {"", nullptr, NONE, nullptr}};
+UIDir WIFI_saved[array_length(wifi_devices) + 1] = {
+    {"", nullptr, NONE, nullptr}};
 UIDir WIFI[] = {
-    {"Status: ", nullptr, NONE, nullptr},
+    {"", nullptr, NONE, nullptr}, // Пустые для статуса
     {"Saved WiFi", editDir, WIFI_SAVED, load_saved_wifi},
-    {"Scan WiFi", nullptr, NONE, nullptr},
-};
+    {"Scan WiFi", editDir, WIFI_SCANNED, scan_wifi},
+    {"Disconnect", nullptr, NONE, wifi_disconnect}};
+
 UIDir StorageFS[] = {
-    {"Read File", nullptr, NONE, nullptr},
-    {"Delete File", nullptr, NONE, nullptr}};
+    {"Read File", editDir, StorageFS_D, openFileSystem},
+    {"Delete File", editDir, StorageFS_R, openFileSystem}};
+UIDir StorageFS_Delete[12];
+UIDir StorageFS_Read[12];
+UIDir StorageFS_Read_File[1];
+
 UIDir WebServer[] = {
-    {"Status: ", nullptr, NONE, nullptr},
-    {"Open/close", nullptr, NONE, nullptr},
-};
+    {"", nullptr, NONE, nullptr},
+    {"Open", nullptr, NONE, webEditStatus}};
 UIDir OTA_dir[] = {
-    {"Status: ", nullptr, NONE, nullptr},
-    {"Lock/unlock", nullptr, NONE, nullptr},
-};
+    {"", nullptr, NONE, nullptr},
+    {"Unlock", nullptr, NONE, OTAEditStatus}};
 
 void editDir(MenuType name)
 {
@@ -325,11 +359,28 @@ void certain_wifi_link()
   {
     if (strcmp(wifi_devices[i].ssid, WIFI_saved[scrollUnitY].name) == 0 /* cmp - для сравнивания. Если 0 = то что надо*/)
     {
-      WiFi.begin(wifi_devices[i].ssid, wifi_devices[i].password);
-      wifi_connecting_debug();
+      WiFi.disconnect(true);
+      actualWifiSSID = wifi_devices[i].ssid;
+      actualWifiPassword = wifi_devices[i].password;
+      WiFi.begin(actualWifiSSID, actualWifiPassword);
+      wifi_connecting_debug(wifi_devices[i].ssid);
     }
   }
-  WiFi.begin();
+}
+
+void tryToSome_wifi_link()
+{
+  for (int i = 0; i < array_length(wifi_devices); i++)
+  {
+    if (strcmp(wifi_devices[i].ssid, WIFI_scanned[scrollUnitY].name) == 0 /* cmp - для сравнивания. Если 0 = то что надо*/)
+    {
+      WiFi.disconnect(true);
+      actualWifiSSID = wifi_devices[i].ssid;
+      actualWifiPassword = wifi_devices[i].password;
+      WiFi.begin(actualWifiSSID, actualWifiPassword);
+      wifi_connecting_debug(wifi_devices[i].ssid);
+    }
+  }
 }
 
 void load_saved_wifi()
@@ -340,6 +391,12 @@ void load_saved_wifi()
   }
   checkWifiStatus();
 } // wifi_connecting_debug
+
+void wifi_disconnect()
+{
+  WiFi.disconnect();
+  checkWifiStatus();
+}
 
 void checkWifiStatus()
 {
@@ -353,27 +410,80 @@ void checkWifiStatus()
   const char *status = wifi ? statusAssemleText : "S: No WiFI";
   WIFI[0] = {status, nullptr, NONE, nullptr};
   WIFI_saved[0] = {status, nullptr, NONE, nullptr};
+  WIFI_scanned[0] = {status, nullptr, NONE, nullptr};
 }
 
+void scan_wifi()
+{
+  WiFi.disconnect();
+  WiFi.mode(WIFI_STA); // Станция
+  delay(100);
+  int count_of_scanned = WiFi.scanNetworks();
+  if (count_of_scanned != 0)
+  {
+    for (int j = 0; j < array_length(scan_wifi_stringed); j++)
+    {
+      scan_wifi_stringed[j] = ""; // Чистим
+    }
+    for (int i = 0; i < count_of_scanned; i++)
+    {
+      scan_wifi_stringed[i] = WiFi.SSID(i); // Новые ставим
+      WIFI_scanned[i + 1] = {scan_wifi_stringed[i].c_str(), nullptr, NONE, tryToSome_wifi_link};
+    };
+    for (int i = count_of_scanned; i < array_length(WIFI_scanned); i++)
+    {
+      WIFI_scanned[i + 1] = {"N/A", nullptr, NONE, nullptr};
+    };
+  }
+  WiFi.begin(actualWifiSSID, actualWifiPassword);
+  checkWifiStatus();
+}
+
+void webEditStatus()
+{
+  if (strcmp(WebServer[0].name, "S: Closed") == 0 && WiFi.localIP() != IPAddress(0, 0, 0, 0))
+  {
+    server.begin();
+    isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
+    isweb = isweb_stringed.c_str();
+    WebServer[1] = {"Close", nullptr, NONE, webEditStatus};
+  }
+  else
+  {
+    server.stop();
+    isweb = nullptr;
+    WebServer[1] = {"Open", nullptr, NONE, webEditStatus};
+  }
+  checkWebStatus();
+}
 void checkWebStatus()
 {
-  const char *statusAssemleText = nullptr;
-  if (isweb)
-  {
-    strcpy(statusBuffer, "S: ");
-    strcat(statusBuffer, isweb);
-    statusAssemleText = statusBuffer;
-  };
-  const char *status = isweb ? statusAssemleText : "S: Closed";
+  const char *status = isweb ? isweb : "S: Closed";
   WebServer[0] = {status, nullptr, NONE, nullptr};
 }
-
+void OTAEditStatus()
+{
+  if (strcmp(OTA_dir[0].name, "S: Disabled") == 0)
+  {
+    ArduinoOTA.begin();
+    isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
+    isOTA = true;
+    OTA_dir[1] = {"Lock", nullptr, NONE, OTAEditStatus};
+  }
+  else
+  {
+    ArduinoOTA.end();
+    isOTA = false;
+    OTA_dir[1] = {"Unlock", nullptr, NONE, OTAEditStatus};
+  }
+  checkOTAStatus();
+}
 void checkOTAStatus()
 {
   const char *status = isOTA ? "S: Enabled" : "S: Disabled";
   OTA_dir[0] = {status, nullptr, NONE, nullptr};
 }
-
+int click_throughs = 0;
 void displayTools(UIDir array[], int length)
 { // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
   u8g2.clearBuffer();
@@ -406,14 +516,29 @@ void displayTools(UIDir array[], int length)
     }
     if (array[scrollUnitY].edit)
     {
+      directories[click_throughs].activeUnitY = scrollUnitY;
+      click_throughs++;
       array[scrollUnitY].edit(array[scrollUnitY].type);
+      directories[click_throughs] = {activeMenu, 0};
     }
   }
   if (isPressedKey(1)) // #
   {
-    activeMenu = MAIN;
-    scrollUnitY = 0;
-    scrollUnitYCounter = 0;
+    if (click_throughs > 0)
+    {
+      activeMenu = directories[click_throughs - 1].previousActiveMenu;
+      scrollUnitY = directories[click_throughs - 1].activeUnitY;
+      int x = 0;
+      if (scrollUnitY != 0)
+      {
+        while (scrollUnitY % 4 == 0)
+        {
+          x++;
+        }
+      }
+      scrollUnitYCounter = x;
+      click_throughs--;
+    }
   }
   if (isPressedKey(2)) // ˅
   {
@@ -461,27 +586,40 @@ void displayMenu(MenuType menu)
   case WIFI_SAVED:
     displayTools(WIFI_saved, array_length(WIFI_saved));
     break;
+  case WIFI_SCANNED:
+    displayTools(WIFI_scanned, array_length(WIFI_scanned));
+    break;
+  case StorageFS_D:
+    displayTools(StorageFS_Delete, array_length(WIFI_scanned));
+    break;
+  case StorageFS_R:
+    displayTools(StorageFS_Read, array_length(WIFI_scanned));
+    break;
+  case StorageFS_R_F:
+    displayTools(StorageFS_Read_File, array_length(StorageFS_Read_File));
+    break;
   case NONE:
     break;
   }
 }
 
 bool wifi_is_finding = false;
-void wifi_connecting_debug()
+void wifi_connecting_debug(const char *ssid)
 {
   if (!wifi_is_finding)
   {
     wifi_is_finding = true;
-    // int vector = 1; // Меняем говнокод на лаконичный остаток от деления
+
     int counter = 0;
-    while (WiFi.status() != WL_CONNECTED)
+    float timer = 0;
+    while (WiFi.status() != WL_CONNECTED && timer != 10)
     {
       u8g2.clearBuffer();
       u8g2.setCursor(0, 14);
-      u8g2.println("Connecting to: ");
-      u8g2.setCursor(0, 28);
-      u8g2.println(wifi);
-      u8g2.setCursor(0, 42);
+      u8g2.println("Connecting: ");
+      u8g2.setCursor(0, 30);
+      u8g2.println(ssid);
+      u8g2.setCursor(0, 46);
       counter++;
       for (int i = counter % 3 + 1; i > 0; i--)
       {
@@ -493,14 +631,71 @@ void wifi_connecting_debug()
       delay(250);
       digitalWrite(2, HIGH);
       delay(250);
+      timer += 0.5;
     }
+
+    wifi = timer == 10 ? nullptr : ssid;
     checkWifiStatus();
-    wifi = WiFi.localIP().toString().c_str(); // IPAddress -> toString -> С-строка
     _print("IP адрес: ");
     _println(WiFi.localIP());
     _print("GateWay адрес: ");
     _println(WiFi.gatewayIP());
     wifi_is_finding = false;
+  }
+}
+void delete_file()
+{
+  FlashEdit(StorageFS_Delete[scrollUnitY].name, "", -1, 'd');
+  if (click_throughs > 0)
+  {
+    activeMenu = directories[click_throughs - 1].previousActiveMenu;
+    scrollUnitY = directories[click_throughs - 1].activeUnitY;
+    int x = 0;
+    if (scrollUnitY != 0)
+    {
+      while (scrollUnitY % 4 == 0)
+      {
+        x++;
+      }
+    }
+    scrollUnitYCounter = x;
+    click_throughs--;
+  }
+}
+void read_file()
+{
+  read_file_stringed = FlashEdit(StorageFS_Read[scrollUnitY].name, "", -1, 'r');
+  StorageFS_Read_File[0] = {read_file_stringed.c_str(), nullptr, NONE, nullptr};
+}
+void openFileSystem()
+{
+  Dir dir = LittleFS.openDir("/");
+  int count_of_files = 0;
+  while (dir.next())
+  {
+    count_of_files++;
+  }
+  if (count_of_files != 0)
+  {
+    for (int j = 0; j < array_length(scan_wifi_stringed); j++)
+    {
+      scan_wifi_stringed[j] = "";
+    }
+    Dir _dir = LittleFS.openDir("/");
+    for (int i = 0; i < count_of_files; i++)
+    {
+      if (_dir.next())
+      {
+        scan_wifi_stringed[i] = _dir.fileName();
+        StorageFS_Delete[i] = {scan_wifi_stringed[i].c_str(), nullptr, NONE, delete_file};
+        StorageFS_Read[i] = {scan_wifi_stringed[i].c_str(), editDir, StorageFS_R_F, read_file};
+      }
+    };
+    for (int i = count_of_files; i < array_length(StorageFS_Delete); i++)
+    {
+      StorageFS_Delete[i + 1] = {"N/A", nullptr, NONE, nullptr};
+      StorageFS_Read[i + 1] = {"N/A", nullptr, NONE, nullptr};
+    };
   }
 }
 
@@ -534,10 +729,9 @@ void setup()
   // }
   server.on("/", root_handle);
   server.on("/bright", bright_handle);
-  server.begin(); // Слушаем на порту 80 к слову
+  // server.begin(); // Слушаем на порту 80 к слову
 
   ArduinoOTA.setHostname(host_dns);
-  ArduinoOTA.begin();
 }
 
 // String* name_tools = other_tools;
@@ -545,8 +739,14 @@ void loop()
 {
   displayMenu(activeMenu);
   // MDNS.update();         // Обработка ДНС. ОТЛОЖЕНО
-  ArduinoOTA.handle();   // Обработка ОТА аплоадов
-  server.handleClient(); // Обработка веб сервера
+  if (isOTA)
+  {
+    ArduinoOTA.handle(); // Обработка ОТА аплоадов
+  }
+  if (isweb)
+  {
+    server.handleClient(); // Обработка веб сервера
+  }
   delay(100);
 }
 
