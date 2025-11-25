@@ -47,6 +47,7 @@ struct UIDir
 
 // ---------------------------------------- РАННИЕ ОБЬЯВЛЕНИЯ ФУНКЦИЙ ДЛЯ КРАСОТЫ КОДА И РЕШЕНИЯ ПРОБЛЕМ КУРИЦА-ЯЙЦО  ---------------------------------------------------
 
+String FlashEdit(const char *path, const char *message_string, const int message_int, char mode);
 void load_saved_wifi();
 void certain_wifi_link();
 void checkWifiStatus();
@@ -62,7 +63,7 @@ void openFileSystem();
 
 // ---------------------------------------- ИМПОРТЫ -> МАКРОСЫ  ---------------------------------------------------
 
-#define DEBUG 0 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
+#define DEBUG 1 // 1 = включить вывод, 0 = выключить вывод (Просто кастомная глобальная переменная для оптимизации)
 #if DEBUG
 #define _print(x) Serial.print(x)
 #define _println(x) Serial.println(x)
@@ -141,115 +142,6 @@ String read_file_stringed;
 
 // -------- Глобальные переменные END --------
 
-// ------------------- FLASH  -----------------
-char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами. Учитываем что 64 - максимальный размер передаваемого инта
-
-String FlashEdit(const char *path, const char *message_string, const int message_int, char mode)
-{
-  if (flash_is_avialable)
-  {
-    const char *search_mode = nullptr;
-    const char *search_message = nullptr;
-    if (message_int != -1)
-    {
-      sprintf(buffer, "%d", message_int);
-      search_message = buffer;
-    }
-    else
-    {
-      search_message = message_string;
-    }
-
-    switch (mode) // более проще чем elseif. Да и впринципе проба
-    {
-    case 'r':
-      search_mode = "r";
-      break;
-    case 'a':
-      search_mode = "a";
-      break;
-    case 'w':
-      search_mode = "w";
-      break;
-    case 'd':
-      search_mode = "d";
-      break;
-
-    default:
-      _println("Ошибка: Недопустимый режим (R, W, A)");
-      break;
-    }
-    File file = LittleFS.open(path, search_mode);
-    if (!file)
-    {
-      _print("Не обнаружен файл для функции ");
-      _print(mode);
-      _print(". По адресу: ");
-      _println(path);
-      return "";
-    }
-    if (mode == 'r')
-    {
-      String fileContent = ""; // Аналог буфера
-      _print("Функция чтения (R) выполнена. Содержимое файла: ");
-      while (file.available())
-      {
-        fileContent += (char)file.read(); // Аналог буфера с добавлением чаров байт за байтом. Чар нужен чтобы стрингу добавлялись ASCII символы а не число инт
-      }
-      _println(fileContent);
-      return fileContent;
-    }
-    if (mode == 'w')
-    {
-      if (file.print(search_message))
-      {
-        _print("Функция записи (W) выполнена. Содержимое на данный момент: ");
-        // file.close();
-        // File file = LittleFS.open(path, "r");
-        file.close();
-        file = LittleFS.open(path, "r");
-        file.seek(0);
-        while (file.available())
-        {
-          Serial.write(file.read());
-        }
-        _println();
-      }
-      else
-      {
-        _println("Функция записи (W) НЕ выполнена");
-      }
-    }
-    if (mode == 'a')
-    {
-      file.print(search_message);
-      file.println(); // чтобы след запись была с новой строки. Для логов и подобное
-      _print("Функция добавления (A) выполнена. Содержимое на данный момент: ");
-      file.close();
-      file = LittleFS.open(path, "r");
-      file.seek(0);
-      while (file.available())
-      {
-        Serial.write(file.read());
-      }
-      _println();
-    }
-    // if (mode == "r+")
-    // {
-    // }
-    if (mode == 'd')
-    {
-      LittleFS.remove(path);
-    }
-    file.close();
-  }
-  else
-  {
-    _println("Flash isn't avialable");
-  }
-  return "";
-}
-
 // ------------------- Функции локальные -----------------
 
 // ----------------------- ВЕБ СЕРВЕР ФУНКЦИИ ----------------------------------
@@ -288,22 +180,34 @@ void bright_handle()
 
 // ----------------------- ВЕБ СЕРВЕР ФУНКЦИИ END ----------------------------------
 
-// -------------- UI Functions + Dirs ---------------------
+// --------------  #region UI Functions + Dirs ---------------------
 
+// #endregion
 int scrollUnitY = 0;        // Сколько раз сниз клик
 int scrollUnitYCounter = 0; // Сколько дисплеев прокручено
 
 int text_height = 14;
 // int maxHeight = 64;
 // int maxWeight = 128;
-
-UIDir dirs[] = { // MAIN
+UIDir dirs[] = {
+    // MAIN
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
     {"StorageFS", editDir, STORAGE_FS, nullptr},
     {"Web Server", editDir, WEB, checkWebStatus},
-    {"OTA Upload", editDir, OTA, checkOTAStatus}};
+    {"OTA Upload", editDir, OTA, checkOTAStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+};
 
-UIDir WIFI_scanned[51] = { // Допустим максимум 50 точек
+UIDir WIFI_scanned[array_length(scan_wifi_stringed)] = { // Допустим максимум 50 точек
     {"", nullptr, NONE, nullptr}};
 UIDir WIFI_saved[array_length(wifi_devices) + 1] = {
     {"", nullptr, NONE, nullptr}};
@@ -314,10 +218,14 @@ UIDir WIFI[] = {
     {"Disconnect", nullptr, NONE, wifi_disconnect}};
 
 UIDir StorageFS[] = {
-    {"Read File", editDir, StorageFS_D, openFileSystem},
-    {"Delete File", editDir, StorageFS_R, openFileSystem}};
-UIDir StorageFS_Delete[12];
-UIDir StorageFS_Read[12];
+    {"Read File", editDir, StorageFS_R, openFileSystem},
+    {"Delete File", editDir, StorageFS_D, openFileSystem}};
+UIDir StorageFS_Delete[12] = {
+    {"N/A", nullptr, NONE, nullptr},
+};
+UIDir StorageFS_Read[12] = {
+    {"N/A", nullptr, NONE, nullptr},
+};
 UIDir StorageFS_Read_File[1];
 
 UIDir WebServer[] = {
@@ -378,6 +286,8 @@ void tryToSome_wifi_link()
       actualWifiSSID = wifi_devices[i].ssid;
       actualWifiPassword = wifi_devices[i].password;
       WiFi.begin(actualWifiSSID, actualWifiPassword);
+      wifi = actualWifiSSID;
+      checkWifiStatus();
       wifi_connecting_debug(wifi_devices[i].ssid);
     }
   }
@@ -394,7 +304,8 @@ void load_saved_wifi()
 
 void wifi_disconnect()
 {
-  WiFi.disconnect();
+  WiFi.disconnect(true);
+  wifi = nullptr;
   checkWifiStatus();
 }
 
@@ -421,16 +332,12 @@ void scan_wifi()
   int count_of_scanned = WiFi.scanNetworks();
   if (count_of_scanned != 0)
   {
-    for (int j = 0; j < array_length(scan_wifi_stringed); j++)
-    {
-      scan_wifi_stringed[j] = ""; // Чистим
-    }
     for (int i = 0; i < count_of_scanned; i++)
     {
       scan_wifi_stringed[i] = WiFi.SSID(i); // Новые ставим
       WIFI_scanned[i + 1] = {scan_wifi_stringed[i].c_str(), nullptr, NONE, tryToSome_wifi_link};
     };
-    for (int i = count_of_scanned; i < array_length(WIFI_scanned); i++)
+    for (int i = count_of_scanned; i < array_length(WIFI_scanned) - 1; i++)
     {
       WIFI_scanned[i + 1] = {"N/A", nullptr, NONE, nullptr};
     };
@@ -441,48 +348,58 @@ void scan_wifi()
 
 void webEditStatus()
 {
-  if (strcmp(WebServer[0].name, "S: Closed") == 0 && WiFi.localIP() != IPAddress(0, 0, 0, 0))
+  if (WiFi.localIP() != IPAddress(0, 0, 0, 0))
   {
-    server.begin();
-    isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
-    isweb = isweb_stringed.c_str();
-    WebServer[1] = {"Close", nullptr, NONE, webEditStatus};
+    if (strcmp(WebServer[0].name, "S: Closed") == 0)
+    {
+      server.begin();
+      isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
+      isweb = isweb_stringed.c_str();
+      WebServer[1] = {"Close", nullptr, NONE, webEditStatus};
+    }
+    else
+    {
+      server.stop();
+      isweb = nullptr;
+      WebServer[1] = {"Open", nullptr, NONE, webEditStatus};
+    }
+    checkWebStatus();
   }
-  else
-  {
-    server.stop();
-    isweb = nullptr;
-    WebServer[1] = {"Open", nullptr, NONE, webEditStatus};
-  }
-  checkWebStatus();
 }
+
 void checkWebStatus()
 {
   const char *status = isweb ? isweb : "S: Closed";
   WebServer[0] = {status, nullptr, NONE, nullptr};
 }
+
 void OTAEditStatus()
 {
-  if (strcmp(OTA_dir[0].name, "S: Disabled") == 0)
+  if (WiFi.localIP() != IPAddress(0, 0, 0, 0))
   {
-    ArduinoOTA.begin();
-    isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
-    isOTA = true;
-    OTA_dir[1] = {"Lock", nullptr, NONE, OTAEditStatus};
+    if (strcmp(OTA_dir[0].name, "S: Disabled") == 0)
+    {
+      ArduinoOTA.begin();
+      isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
+      isOTA = true;
+      OTA_dir[1] = {"Lock", nullptr, NONE, OTAEditStatus};
+    }
+    else
+    {
+      ArduinoOTA.end();
+      isOTA = false;
+      OTA_dir[1] = {"Unlock", nullptr, NONE, OTAEditStatus};
+    }
+    checkOTAStatus();
   }
-  else
-  {
-    ArduinoOTA.end();
-    isOTA = false;
-    OTA_dir[1] = {"Unlock", nullptr, NONE, OTAEditStatus};
-  }
-  checkOTAStatus();
 }
+
 void checkOTAStatus()
 {
   const char *status = isOTA ? "S: Enabled" : "S: Disabled";
   OTA_dir[0] = {status, nullptr, NONE, nullptr};
 }
+
 int click_throughs = 0;
 void displayTools(UIDir array[], int length)
 { // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
@@ -528,13 +445,15 @@ void displayTools(UIDir array[], int length)
     {
       activeMenu = directories[click_throughs - 1].previousActiveMenu;
       scrollUnitY = directories[click_throughs - 1].activeUnitY;
+      int scrollUnitYCopy = scrollUnitY;
       int x = 0;
-      if (scrollUnitY != 0)
+      while (scrollUnitYCopy >= 4)
       {
-        while (scrollUnitY % 4 == 0)
+        if (scrollUnitYCopy % 4 == 0)
         {
           x++;
         }
+        scrollUnitYCopy--;
       }
       scrollUnitYCounter = x;
       click_throughs--;
@@ -590,10 +509,10 @@ void displayMenu(MenuType menu)
     displayTools(WIFI_scanned, array_length(WIFI_scanned));
     break;
   case StorageFS_D:
-    displayTools(StorageFS_Delete, array_length(WIFI_scanned));
+    displayTools(StorageFS_Delete, array_length(StorageFS_Delete));
     break;
   case StorageFS_R:
-    displayTools(StorageFS_Read, array_length(WIFI_scanned));
+    displayTools(StorageFS_Read, array_length(StorageFS_Read));
     break;
   case StorageFS_R_F:
     displayTools(StorageFS_Read_File, array_length(StorageFS_Read_File));
@@ -643,63 +562,178 @@ void wifi_connecting_debug(const char *ssid)
     wifi_is_finding = false;
   }
 }
+
 void delete_file()
 {
   FlashEdit(StorageFS_Delete[scrollUnitY].name, "", -1, 'd');
-  if (click_throughs > 0)
+  activeMenu = directories[click_throughs - 1].previousActiveMenu;
+  scrollUnitY = directories[click_throughs - 1].activeUnitY;
+  int scrollUnitYCopy = scrollUnitY;
+  int x = 0;
+  while (scrollUnitYCopy >= 4)
   {
-    activeMenu = directories[click_throughs - 1].previousActiveMenu;
-    scrollUnitY = directories[click_throughs - 1].activeUnitY;
-    int x = 0;
-    if (scrollUnitY != 0)
+    if (scrollUnitYCopy % 4 == 0)
     {
-      while (scrollUnitY % 4 == 0)
-      {
-        x++;
-      }
+      x++;
     }
-    scrollUnitYCounter = x;
-    click_throughs--;
+    scrollUnitYCopy--;
   }
+  scrollUnitYCounter = x;
+  click_throughs--;
+  click_throughs--;
 }
+
 void read_file()
 {
   read_file_stringed = FlashEdit(StorageFS_Read[scrollUnitY].name, "", -1, 'r');
   StorageFS_Read_File[0] = {read_file_stringed.c_str(), nullptr, NONE, nullptr};
 }
+
 void openFileSystem()
 {
   Dir dir = LittleFS.openDir("/");
   int count_of_files = 0;
-  while (dir.next())
+  while (dir.next() && count_of_files < 12)
   {
+    file_system_stringed[count_of_files] = dir.fileName();
     count_of_files++;
   }
   if (count_of_files != 0)
   {
-    for (int j = 0; j < array_length(scan_wifi_stringed); j++)
-    {
-      scan_wifi_stringed[j] = "";
-    }
-    Dir _dir = LittleFS.openDir("/");
     for (int i = 0; i < count_of_files; i++)
     {
-      if (_dir.next())
-      {
-        scan_wifi_stringed[i] = _dir.fileName();
-        StorageFS_Delete[i] = {scan_wifi_stringed[i].c_str(), nullptr, NONE, delete_file};
-        StorageFS_Read[i] = {scan_wifi_stringed[i].c_str(), editDir, StorageFS_R_F, read_file};
-      }
+      StorageFS_Delete[i] = {file_system_stringed[i].c_str(), nullptr, NONE, delete_file};
+      StorageFS_Read[i] = {file_system_stringed[i].c_str(), editDir, StorageFS_R_F, read_file};
     };
     for (int i = count_of_files; i < array_length(StorageFS_Delete); i++)
     {
-      StorageFS_Delete[i + 1] = {"N/A", nullptr, NONE, nullptr};
-      StorageFS_Read[i + 1] = {"N/A", nullptr, NONE, nullptr};
+      StorageFS_Delete[i] = {"N/A", nullptr, NONE, nullptr};
+      StorageFS_Read[i] = {"N/A", nullptr, NONE, nullptr};
     };
   }
 }
 
 // ------------------- Начало программы и луп  -----------------
+
+// ------------------- FLASH  -----------------
+char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами. Учитываем что 64 - максимальный размер передаваемого инта
+
+String FlashEdit(const char *path, const char *message_string, const int message_int, char mode)
+{
+  if (flash_is_avialable)
+  {
+    if (path[0] != '/')
+    {
+      if (StorageFS_Delete[scrollUnitY].name)
+      {
+        strcpy(statusBuffer, "/");                                // Перезаписать первую строку
+        strcat(statusBuffer, StorageFS_Delete[scrollUnitY].name); // Добавить. Цель - соединить 2 переменные чара
+        path = statusBuffer;
+      };
+    }
+    const char *search_mode = nullptr;
+    const char *search_message = nullptr;
+    if (message_int != -1)
+    {
+      sprintf(buffer, "%d", message_int);
+      search_message = buffer;
+    }
+    else
+    {
+      search_message = message_string;
+    }
+
+    switch (mode) // более проще чем elseif. Да и впринципе проба
+    {
+    case 'r':
+      search_mode = "r";
+      break;
+    case 'a':
+      search_mode = "a";
+      break;
+    case 'w':
+      search_mode = "w";
+      break;
+    case 'd':
+      LittleFS.remove(path);
+      return "";
+      break;
+
+    default:
+      _println("Ошибка: Недопустимый режим (R, W, A)");
+      break;
+    }
+    File file = LittleFS.open(path, search_mode);
+    if (!file)
+    {
+      _print("Не обнаружен файл для функции ");
+      _print(mode);
+      _print(". По адресу: ");
+      _println(path);
+      return "";
+    }
+    if (mode == 'r')
+    {
+      String fileContent = ""; // Аналог буфера
+      _print("Функция чтения (R) выполнена. Содержимое файла (");
+      _print(path);
+      _print("): ");
+
+      while (file.available())
+      {
+        fileContent += (char)file.read(); // Аналог буфера с добавлением чаров байт за байтом. Чар нужен чтобы стрингу добавлялись ASCII символы а не число инт
+      }
+      _println(fileContent);
+      return fileContent;
+    }
+    if (mode == 'w')
+    {
+      if (file.print(search_message))
+      {
+        _print("Функция записи (W) выполнена. Содержимое на данный момент: ");
+        // file.close();
+        // File file = LittleFS.open(path, "r");
+        file.close();
+        file = LittleFS.open(path, "r");
+        file.seek(0);
+        while (file.available())
+        {
+          Serial.write(file.read());
+        }
+        _println();
+      }
+      else
+      {
+        _println("Функция записи (W) НЕ выполнена");
+      }
+    }
+    if (mode == 'a')
+    {
+      file.print(search_message);
+      file.println(); // чтобы след запись была с новой строки. Для логов и подобное
+      _print("Функция добавления (A) выполнена. Содержимое на данный момент: ");
+      file.close();
+      file = LittleFS.open(path, "r");
+      file.seek(0);
+      while (file.available())
+      {
+        Serial.write(file.read());
+      }
+      _println();
+    }
+    // if (mode == "r+")
+    // {
+    // }
+
+    file.close();
+    return "";
+  }
+  else
+  {
+    _println("Flash isn't avialable");
+  }
+  return "";
+}
 
 // Учитываем, что стринг может забивать РАМ в долгосроке. Вместо них в будущем для оптимизации юзать С-строки. Плюсом потом еще неблок. код юзать
 void setup()
@@ -710,6 +744,7 @@ void setup()
   // text_height = u8g2.getMaxCharHeight();
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); // Off
   for (int i = 0; i < array_length(key_input_button_pins); i++)
   {
     pinMode(key_input_button_pins[i], INPUT_PULLUP);
@@ -730,7 +765,10 @@ void setup()
   server.on("/", root_handle);
   server.on("/bright", bright_handle);
   // server.begin(); // Слушаем на порту 80 к слову
-
+  // for (int j = 0; j < 4; j++)
+  // {
+  //   FlashEdit("/Some", "Hello", -1, 'w');
+  // }
   ArduinoOTA.setHostname(host_dns);
 }
 
