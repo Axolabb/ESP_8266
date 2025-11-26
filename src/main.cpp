@@ -140,6 +140,8 @@ String scan_wifi_stringed[51];
 String file_system_stringed[12];
 String read_file_stringed;
 
+const int FPS = 50;
+
 // -------- Глобальные переменные END --------
 
 // ------------------- Функции локальные -----------------
@@ -186,7 +188,11 @@ void bright_handle()
 int scrollUnitY = 0;        // Сколько раз сниз клик
 int scrollUnitYCounter = 0; // Сколько дисплеев прокручено
 
-int text_height = 14;
+const int text_height = 14;
+const int oled_height = 63;
+const int oled_width = 127;
+const int optionsPerViewDisplay = 4;
+
 // int maxHeight = 64;
 // int maxWeight = 128;
 UIDir dirs[] = {
@@ -400,12 +406,120 @@ void checkOTAStatus()
   OTA_dir[0] = {status, nullptr, NONE, nullptr};
 }
 
+// Animation vars
+const int framesAmount = 6; // Колво этапов анимации / прогрессия уменьшения скорости. Чем больше тем хуже тк высота экранчика то маленькая
+
+struct animationData
+{
+  int coordinates[framesAmount];
+};
+
+const int millisecondsGenerally = 300;                      // Для неблок делеек и синхрона с общим ФПС
+const float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0; // Сколько процентов хавает на первый шаг + 100% тк нам не нужен ноль
+animationData /* Указатель на массив */ smoothAnimateCoordinatesReturner(int x1, int x2, char mode = 'o', float amountOfSpeedAtFirstStage = 60.0 / 100.0 + 1.0)
+{ // Из точки x1 в точку x2. Мод - i = ease-in. o = ease-out, q - ease-in-out
+  animationData data;
+  int length = x2 - x1;
+  const float soleUnitOfMotion = (float)length / (float)framesAmount; // Указываем, иначе может произойти целочисленное деление
+  float theChangeOfSpeedPerStage = (amountOfSpeedAtFirstStage - 1) / (framesAmount / 2);
+  int startPosition = x1;
+  switch (mode)
+  {
+  case 'i':
+    for (int i = 0; i < framesAmount; i++)
+    {
+      data.coordinates[i] = soleUnitOfMotion;
+    }
+    break;
+  case 'o':
+    for (int i = 0; i < framesAmount; i++)
+    {
+
+      float toForward = soleUnitOfMotion;
+      toForward *= (int)round((amountOfSpeedAtFirstStage - theChangeOfSpeedPerStage * i) * 1000) == 1000 ? (amountOfSpeedAtFirstStage - (theChangeOfSpeedPerStage * i) - theChangeOfSpeedPerStage) : (amountOfSpeedAtFirstStage - theChangeOfSpeedPerStage * i);
+      data.coordinates[i] = startPosition + toForward;
+      startPosition += toForward;
+
+    } // Не можем сравнивать флот с флотом из за фундаментальных ограничений. Сравниваем по сути с единицей но если округлить 1700/1000 то будет 1 что true... Поэтому сравниваем с 1000
+    data.coordinates[framesAmount - 1] = x2;
+
+    break;
+  case 'q':
+    for (int i = 0; i < framesAmount; i++)
+    {
+      data.coordinates[i] = soleUnitOfMotion;
+    }
+    break;
+  }
+  return data;
+}
+
+void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amountOfSpeedAtFirstStage = 60.0 / 100.0 + 1.0)
+{
+  const int FPS_necessary_to_frame = (millisecondsGenerally / (1000 / FPS)) / framesAmount;
+  static int FPS_spent = 0;
+  static int Frames_remained = framesAmount;
+  static int oldY1 = -9999;
+  static int oldY2;
+  static int previousY1_forAnimation;
+  static int previousY2_forAnimation;
+  if (oldY1 == -9999)
+  {
+    oldY1 = y1;
+    oldY2 = y2;
+  }
+  static int stepNow = 0;
+  static int maxSteps = framesAmount;
+  static bool isSteps = false;
+  static animationData coordsForTopSide;
+  static animationData coordsForBottomSide;
+  if (oldY1 == y1 && oldY2 == y2 && !isSteps)
+  {
+    u8g2.drawLine(oled_width, oldY1, oled_width, oldY2);
+  }
+  else if (!isSteps)
+  {
+    
+
+    coordsForTopSide = smoothAnimateCoordinatesReturner(oldY1, y1, mode, amountOfSpeedAtFirstStage);
+    coordsForBottomSide = smoothAnimateCoordinatesReturner(oldY2, y2, mode, amountOfSpeedAtFirstStage);
+    oldY1 = y1;
+    oldY2 = y2;
+    for (int i = 0; i < maxSteps; i++)
+    stepNow = 0;
+    Frames_remained = framesAmount;
+    isSteps = true;
+  }
+  if (FPS_spent % FPS_necessary_to_frame == 0 && isSteps)
+  { // Каждый например 4 фпс делаем фрейм (Чтобы по времени все было)
+    if (stepNow < maxSteps)
+    {
+      previousY1_forAnimation = coordsForTopSide.coordinates[stepNow];
+      previousY2_forAnimation = coordsForBottomSide.coordinates[stepNow];
+      u8g2.drawLine(oled_width, coordsForTopSide.coordinates[stepNow], oled_width, coordsForBottomSide.coordinates[stepNow]);
+      stepNow++;
+      Frames_remained--;
+    }
+    else
+    {
+      u8g2.drawLine(oled_width, previousY1_forAnimation, oled_width, previousY2_forAnimation);
+      isSteps = false;
+    }
+  }
+  else if (isSteps)
+  {
+    u8g2.drawLine(oled_width, previousY1_forAnimation, oled_width, previousY2_forAnimation);
+  }
+  FPS_spent++;
+}
+
 int click_throughs = 0;
+
 void displayTools(UIDir array[], int length)
 { // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
   u8g2.clearBuffer();
-  u8g2.drawLine(0, text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4), u8g2.getStrWidth(array[scrollUnitY].name), text_height * (scrollUnitY % 4 + 1) + 2 * (scrollUnitY % 4));
-  for (int i = 0; i < (length - 4 * scrollUnitYCounter); i++)
+  u8g2.drawLine(0, text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay), u8g2.getStrWidth(array[scrollUnitY].name), text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay));
+  for (int i = 0; i < (length - optionsPerViewDisplay * scrollUnitYCounter); i++)
   {
     int separator = 0;
     if (i != 0)
@@ -420,9 +534,9 @@ void displayTools(UIDir array[], int length)
     {
       u8g2.setCursor(0, text_height * (i + 1) + separator * i);
     }
-    u8g2.print(array[i + 4 * scrollUnitYCounter].name);
+    u8g2.print(array[i + optionsPerViewDisplay * scrollUnitYCounter].name);
   }
-  u8g2.drawLine(127, scrollUnitYCounter * (63 * 4 / length), 127, (63 * 4 / length) + scrollUnitYCounter * (63 * 4 / length)); // Скролл бар
+  animation_andRender_scrollbar(scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length), (oled_height * optionsPerViewDisplay / length) + scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length)); // Скролл бар
   u8g2.sendBuffer();
 
   if (isPressedKey(0)) // *
@@ -545,7 +659,6 @@ void wifi_connecting_debug(const char *ssid)
         u8g2.print('.');
       }
       u8g2.sendBuffer();
-      _println("Connecting...");
       digitalWrite(2, LOW);
       delay(250);
       digitalWrite(2, HIGH);
@@ -555,10 +668,7 @@ void wifi_connecting_debug(const char *ssid)
 
     wifi = timer == 10 ? nullptr : ssid;
     checkWifiStatus();
-    _print("IP адрес: ");
-    _println(WiFi.localIP());
-    _print("GateWay адрес: ");
-    _println(WiFi.gatewayIP());
+
     wifi_is_finding = false;
   }
 }
@@ -751,7 +861,7 @@ void setup()
   }
   if (LittleFS.begin())
   {
-    _println("LittleFS смонтирован и готов работать");
+    _println();
     flash_is_avialable = true;
   }
   // _print("Подключаемся к WiFI: ");
@@ -771,11 +881,29 @@ void setup()
   // }
   ArduinoOTA.setHostname(host_dns);
 }
-
 // String* name_tools = other_tools;
+const long MillisForfiftyFPS = 20;
+const long FPScounterIntervalCheck = 1000;
+long FPScounterIntervalCheckPreviousMillis = 0;
+int FPSCounter = 0;
+long previousMillis = 0;
 void loop()
 {
-  displayMenu(activeMenu);
+  unsigned long current_millis = millis();
+  if (current_millis - previousMillis >= MillisForfiftyFPS)
+  {
+    previousMillis = current_millis;
+    displayMenu(activeMenu);
+    FPSCounter++;
+  }
+  unsigned long current_millisFPS = millis();
+  if (current_millisFPS - FPScounterIntervalCheckPreviousMillis >= FPScounterIntervalCheck)
+  {
+    FPScounterIntervalCheckPreviousMillis = current_millisFPS;
+    _print(FPSCounter);
+    _println(" - FPS");
+    FPSCounter = 0;
+  }
   // MDNS.update();         // Обработка ДНС. ОТЛОЖЕНО
   if (isOTA)
   {
@@ -785,7 +913,6 @@ void loop()
   {
     server.handleClient(); // Обработка веб сервера
   }
-  delay(100);
 }
 
 /* ----------------------- Unuse Commented Blocks of code  ----------------------------------
