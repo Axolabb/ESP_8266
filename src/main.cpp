@@ -140,7 +140,7 @@ String scan_wifi_stringed[51];
 String file_system_stringed[12];
 String read_file_stringed;
 
-const int FPS = 50;
+const int FPS = 20;
 
 // -------- Глобальные переменные END --------
 
@@ -226,10 +226,10 @@ UIDir WIFI[] = {
 UIDir StorageFS[] = {
     {"Read File", editDir, StorageFS_R, openFileSystem},
     {"Delete File", editDir, StorageFS_D, openFileSystem}};
-UIDir StorageFS_Delete[12] = {
+UIDir StorageFS_Delete[array_length(file_system_stringed)] = {
     {"N/A", nullptr, NONE, nullptr},
 };
-UIDir StorageFS_Read[12] = {
+UIDir StorageFS_Read[array_length(file_system_stringed)] = {
     {"N/A", nullptr, NONE, nullptr},
 };
 UIDir StorageFS_Read_File[1];
@@ -407,22 +407,24 @@ void checkOTAStatus()
 }
 
 // Animation vars
-const int framesAmount = 6; // Колво этапов анимации / прогрессия уменьшения скорости. Чем больше тем хуже тк высота экранчика то маленькая
+const int framesAmount = 20; // Колво этапов анимации / прогрессия уменьшения скорости. Чем больше тем хуже тк высота экранчика то маленькая
 
 struct animationData
 {
   int coordinates[framesAmount];
 };
 
-const int millisecondsGenerally = 300;                      // Для неблок делеек и синхрона с общим ФПС
-const float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0; // Сколько процентов хавает на первый шаг + 100% тк нам не нужен ноль
-animationData /* Указатель на массив */ smoothAnimateCoordinatesReturner(int x1, int x2, char mode = 'o', float amountOfSpeedAtFirstStage = 60.0 / 100.0 + 1.0)
+unsigned long millis_necessary_to_frame = 500 / framesAmount; // Для неблок делеек и синхрона с общим ФПС
+unsigned long millis_spent = 0;
+// const float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0; // Сколько процентов хавает на первый шаг + 100% тк нам не нужен ноль
+animationData /* Указатель на массив */ smoothAnimateCoordinatesReturner(int x1, int x2, char mode = 'o', float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0)
 { // Из точки x1 в точку x2. Мод - i = ease-in. o = ease-out, q - ease-in-out
   animationData data;
   int length = x2 - x1;
   const float soleUnitOfMotion = (float)length / (float)framesAmount; // Указываем, иначе может произойти целочисленное деление
   float theChangeOfSpeedPerStage = (amountOfSpeedAtFirstStage - 1) / (framesAmount / 2);
-  int startPosition = x1;
+  bool wasOnce = false;
+  float accumulated_motion = 0.0;
   switch (mode)
   {
   case 'i':
@@ -436,13 +438,30 @@ animationData /* Указатель на массив */ smoothAnimateCoordinate
     {
 
       float toForward = soleUnitOfMotion;
-      toForward *= (int)round((amountOfSpeedAtFirstStage - theChangeOfSpeedPerStage * i) * 1000) == 1000 ? (amountOfSpeedAtFirstStage - (theChangeOfSpeedPerStage * i) - theChangeOfSpeedPerStage) : (amountOfSpeedAtFirstStage - theChangeOfSpeedPerStage * i);
-      data.coordinates[i] = startPosition + toForward;
-      startPosition += toForward;
+      if ((int)round((amountOfSpeedAtFirstStage - theChangeOfSpeedPerStage * i) * 1000) == 1000)
+      {
+        wasOnce = true;
+      }
+      toForward *= wasOnce ? (amountOfSpeedAtFirstStage - (theChangeOfSpeedPerStage * i) - theChangeOfSpeedPerStage)
+                           : (amountOfSpeedAtFirstStage - theChangeOfSpeedPerStage * i);
+      accumulated_motion += toForward;
+      float absolute_position_float = (float)x1 + accumulated_motion;
+      int calculated_y = round(absolute_position_float);
+      calculated_y = calculated_y >= 0 ? calculated_y : 0;
+      // data.coordinates[i] = startPosition + toForward;
+      // data.coordinates[i] = data.coordinates[i] >= 0 ? data.coordinates[i] : 0;
+
+      if (x2 > x1)
+      {
+        data.coordinates[i] = calculated_y <= x2 ? calculated_y : x2;
+      }
+      else
+      {
+        data.coordinates[i] = calculated_y >= x2 ? calculated_y : x2;
+      }
 
     } // Не можем сравнивать флот с флотом из за фундаментальных ограничений. Сравниваем по сути с единицей но если округлить 1700/1000 то будет 1 что true... Поэтому сравниваем с 1000
-    data.coordinates[framesAmount - 1] = x2;
-
+    // data.coordinates[framesAmount - 1] = x2;
     break;
   case 'q':
     for (int i = 0; i < framesAmount; i++)
@@ -454,11 +473,8 @@ animationData /* Указатель на массив */ smoothAnimateCoordinate
   return data;
 }
 
-void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amountOfSpeedAtFirstStage = 60.0 / 100.0 + 1.0)
+void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0)
 {
-  const int FPS_necessary_to_frame = (millisecondsGenerally / (1000 / FPS)) / framesAmount;
-  static int FPS_spent = 0;
-  static int Frames_remained = framesAmount;
   static int oldY1 = -9999;
   static int oldY2;
   static int previousY1_forAnimation;
@@ -466,7 +482,9 @@ void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amount
   if (oldY1 == -9999)
   {
     oldY1 = y1;
+    previousY1_forAnimation = y1;
     oldY2 = y2;
+    previousY2_forAnimation = y2;
   }
   static int stepNow = 0;
   static int maxSteps = framesAmount;
@@ -477,40 +495,151 @@ void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amount
   {
     u8g2.drawLine(oled_width, oldY1, oled_width, oldY2);
   }
-  else if (!isSteps)
+  else if (oldY1 != y1 || oldY2 != y2)
   {
-    
 
-    coordsForTopSide = smoothAnimateCoordinatesReturner(oldY1, y1, mode, amountOfSpeedAtFirstStage);
-    coordsForBottomSide = smoothAnimateCoordinatesReturner(oldY2, y2, mode, amountOfSpeedAtFirstStage);
+    coordsForTopSide = smoothAnimateCoordinatesReturner(previousY1_forAnimation, y1);
+    coordsForBottomSide = smoothAnimateCoordinatesReturner(previousY2_forAnimation, y2);
+    // for (int i = 0; i < array_length(coordsForTopSide.coordinates); i++)
+    // {
+    //   _print(coordsForTopSide.coordinates[i]);
+    //   _println(" - top");
+    // }
+    // for (int i = 0; i < array_length(coordsForBottomSide.coordinates); i++)
+    // {
+    //   _print(coordsForBottomSide.coordinates[i]);
+    //   _println(" - bottom");
+    // }
     oldY1 = y1;
     oldY2 = y2;
-    for (int i = 0; i < maxSteps; i++)
+
     stepNow = 0;
-    Frames_remained = framesAmount;
     isSteps = true;
   }
-  if (FPS_spent % FPS_necessary_to_frame == 0 && isSteps)
+  if (millis() - millis_spent >= millis_necessary_to_frame && isSteps)
   { // Каждый например 4 фпс делаем фрейм (Чтобы по времени все было)
+    millis_spent = millis();
     if (stepNow < maxSteps)
     {
       previousY1_forAnimation = coordsForTopSide.coordinates[stepNow];
       previousY2_forAnimation = coordsForBottomSide.coordinates[stepNow];
       u8g2.drawLine(oled_width, coordsForTopSide.coordinates[stepNow], oled_width, coordsForBottomSide.coordinates[stepNow]);
+      // _print(previousY1_forAnimation);
+      // _print(" (stepNow < maxSteps) ");
+      // _println(previousY2_forAnimation);
       stepNow++;
-      Frames_remained--;
     }
     else
     {
       u8g2.drawLine(oled_width, previousY1_forAnimation, oled_width, previousY2_forAnimation);
+      // _print(previousY1_forAnimation);
+      // _print(" (is Steps = false) ");
+      // _println(previousY2_forAnimation);
       isSteps = false;
     }
   }
   else if (isSteps)
   {
     u8g2.drawLine(oled_width, previousY1_forAnimation, oled_width, previousY2_forAnimation);
+    // _print(previousY1_forAnimation);
+    // _print(" (else if isSteps, but not necessary FPS) ");
+    // _println(previousY2_forAnimation);
   }
-  FPS_spent++;
+}
+unsigned long millis_spent_pointBar = 0;
+
+struct animationData_disappearing
+{
+  animationData coords;
+  int y;
+  unsigned long previousMillis;
+};
+
+animationData_disappearing disappearing_pointBars[20];
+int amount_disappearing_pointBars = 0;
+void once_disappearing_pointBar(int index)
+{
+}
+void animation_andRender_pointBar(int y, int x2, char mode = 'o', float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0)
+{
+  static int oldY = -9999;
+  static int oldX;
+  static int previousX2_forAnimation_1;
+  static int previousX2_forAnimation_2 = -1;
+  if (oldY == -9999)
+  {
+    oldY = y;
+    oldX = x2;
+    // previousX1_forAnimation_1 = x1;
+    // oldX2 = x2;
+    // previousX2_forAnimation_1 = x2;
+  }
+  static int stepNow = 0;
+  static int maxSteps = framesAmount;
+  static bool isSteps = false;
+  static animationData coordsForRightSide_disappearing;
+  static animationData coordsForRightSide_main;
+  if (oldY == y && !isSteps)
+  {
+    u8g2.drawLine(0, y, x2, y);
+  }
+  else if (oldY != y)
+  {
+    for (int i = 0; i < array_length(disappearing_pointBars); i++) {
+      if (disappearing_pointBars[i].y == NONE) {
+        disappearing_pointBars[i] = {smoothAnimateCoordinatesReturner(oldX, 0), oldY, 0};
+        amount_disappearing_pointBars++;
+      }
+    }
+    coordsForRightSide_main = smoothAnimateCoordinatesReturner(0, x2);
+    // for (int i = 0; i < amount_disappearing_pointBars; i++)
+    // {
+    //   _println(disappearing_pointBars[i].coords.coordinates[i]);
+    //   _println(disappearing_pointBars[i].previousMillis);
+    //   _println(disappearing_pointBars[i].y);
+    // }
+    oldY = y;
+    stepNow = 0;
+    isSteps = true;
+  }
+  if (millis() - millis_spent_pointBar >= millis_necessary_to_frame && isSteps)
+  { // Каждый например 4 фпс делаем фрейм (Чтобы по времени все было)
+    millis_spent_pointBar = millis();
+    if (stepNow < maxSteps)
+    {
+      previousX2_forAnimation_1 = coordsForRightSide_disappearing.coordinates[stepNow];
+
+      previousX2_forAnimation_2 = coordsForRightSide_main.coordinates[stepNow];
+      // u8g2.drawLine(0, previousY_forAnimation_1, previousX2_forAnimation_1, previousY_forAnimation_1);
+      u8g2.drawLine(0, y, previousX2_forAnimation_2, y);
+      // _print(previousX2_forAnimation_1);
+      // _print(" (stepNow < maxSteps) ");
+      // _println(previousX2_forAnimation_2);
+      stepNow++;
+    }
+    else
+    {
+      // u8g2.drawLine(0, previousY_forAnimation_1, previousX2_forAnimation_1, previousY_forAnimation_1);
+      u8g2.drawLine(0, y, previousX2_forAnimation_2, y);
+      // _print(previousX2_forAnimation_1);
+      // _print(" (stepNow < maxSteps) ");
+      // _println(previousX2_forAnimation_2);
+
+      isSteps = false;
+      previousX2_forAnimation_1 = coordsForRightSide_main.coordinates[array_length(coordsForRightSide_main.coordinates) - 1];
+    }
+  }
+  else if (isSteps)
+  {
+    // u8g2.drawLine(0, previousY_forAnimation_1, previousX2_forAnimation_1, previousY_forAnimation_1);
+    u8g2.drawLine(0, y, previousX2_forAnimation_2, y);
+    // _print(previousX2_forAnimation_1);
+    // _print(" (stepNow < maxSteps) ");
+    // _println(previousX2_forAnimation_2);
+  }
+  // if (coordsForRightSide_disappearing) {
+  //   once_disappearing_pointBar(coordsForRightSide_disappearing);
+  // }
 }
 
 int click_throughs = 0;
@@ -518,7 +647,7 @@ int click_throughs = 0;
 void displayTools(UIDir array[], int length)
 { // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
   u8g2.clearBuffer();
-  u8g2.drawLine(0, text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay), u8g2.getStrWidth(array[scrollUnitY].name), text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay));
+  animation_andRender_pointBar(text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay), u8g2.getStrWidth(array[scrollUnitY].name));
   for (int i = 0; i < (length - optionsPerViewDisplay * scrollUnitYCounter); i++)
   {
     int separator = 0;
@@ -536,7 +665,7 @@ void displayTools(UIDir array[], int length)
     }
     u8g2.print(array[i + optionsPerViewDisplay * scrollUnitYCounter].name);
   }
-  animation_andRender_scrollbar(scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length), (oled_height * optionsPerViewDisplay / length) + scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length)); // Скролл бар
+  animation_andRender_scrollbar(scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length), scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length) + (oled_height * optionsPerViewDisplay / length) > oled_height ? oled_height : scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length) + (oled_height * optionsPerViewDisplay / length)); // Скролл бар
   u8g2.sendBuffer();
 
   if (isPressedKey(0)) // *
@@ -882,28 +1011,26 @@ void setup()
   ArduinoOTA.setHostname(host_dns);
 }
 // String* name_tools = other_tools;
-const long MillisForfiftyFPS = 20;
+const long MillisForfiftyFPS = 1000 / FPS;
 const long FPScounterIntervalCheck = 1000;
 long FPScounterIntervalCheckPreviousMillis = 0;
 int FPSCounter = 0;
 long previousMillis = 0;
 void loop()
 {
-  unsigned long current_millis = millis();
-  if (current_millis - previousMillis >= MillisForfiftyFPS)
-  {
-    previousMillis = current_millis;
-    displayMenu(activeMenu);
-    FPSCounter++;
-  }
-  unsigned long current_millisFPS = millis();
-  if (current_millisFPS - FPScounterIntervalCheckPreviousMillis >= FPScounterIntervalCheck)
-  {
-    FPScounterIntervalCheckPreviousMillis = current_millisFPS;
-    _print(FPSCounter);
-    _println(" - FPS");
-    FPSCounter = 0;
-  }
+  displayMenu(activeMenu);
+  // if (millis() - previousMillis >= MillisForfiftyFPS)
+  // {
+  //   previousMillis = millis();
+  //   FPSCounter++;
+  // }
+  // if (millis() - FPScounterIntervalCheckPreviousMillis >= FPScounterIntervalCheck)
+  // {
+  //   FPScounterIntervalCheckPreviousMillis = millis();
+  //   _print(FPSCounter);
+  //   _println(" - FPS");
+  //   FPSCounter = 0;
+  // }
   // MDNS.update();         // Обработка ДНС. ОТЛОЖЕНО
   if (isOTA)
   {
