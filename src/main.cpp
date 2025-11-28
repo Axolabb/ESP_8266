@@ -553,10 +553,11 @@ struct animationData_disappearing
 {
   animationData coord_wrapper;
   int y = NONE;
-  unsigned long previousMillis = 0;
-  int now_frame = 0;
-  int display_now = 0;
   int dir_now = 0;
+  int display_now = 0;
+  int now_frame = 0;
+  unsigned long previousMillis = 0;
+  int previousX2_forAnimation = 0;
 };
 
 animationData_disappearing disappearing_pointBars[20]{};
@@ -564,6 +565,7 @@ animationData_disappearing disappearing_pointBars[20]{};
 void processing_disappearing_pointBars(int index)
 {
   int y_coord = disappearing_pointBars[index].y;
+  int x_coord_now = disappearing_pointBars[index].coord_wrapper.coordinates[disappearing_pointBars[index].now_frame];
   if (millis() - disappearing_pointBars[index].previousMillis >= millis_necessary_to_frame)
   {
     disappearing_pointBars[index].previousMillis = millis();
@@ -571,8 +573,9 @@ void processing_disappearing_pointBars(int index)
     {
       if (scrollDisplayNow == disappearing_pointBars[index].display_now && click_throughs == disappearing_pointBars[index].dir_now)
       {
-        u8g2.drawLine(0, y_coord, disappearing_pointBars[index].coord_wrapper.coordinates[disappearing_pointBars[index].now_frame], y_coord);
+        u8g2.drawLine(0, y_coord, x_coord_now, y_coord);
       }
+      disappearing_pointBars[index].previousX2_forAnimation = x_coord_now;
       disappearing_pointBars[index].now_frame++;
     }
     else
@@ -610,16 +613,28 @@ void animation_andRender_pointBar(int y, int x2, char mode = 'o', float amountOf
   }
   else if (oldY != y || oldX != x2)
   {
+    coordsForRightSide_main = smoothAnimateCoordinatesReturner(0, x2);
+    for (int i = 0; i < array_length(disappearing_pointBars); i++)
+    {
+      if (disappearing_pointBars[i].y == y)
+      {
+        _print("Нашел. Меняем - ");
+        _println(disappearing_pointBars[i].previousX2_forAnimation);
+        disappearing_pointBars[i].y = NONE;
+        coordsForRightSide_main = smoothAnimateCoordinatesReturner(disappearing_pointBars[i].previousX2_forAnimation, x2);
+        break;
+      }
+    }
+
     for (int i = 0; i < array_length(disappearing_pointBars); i++)
     {
       if (disappearing_pointBars[i].y == NONE)
       {
-        disappearing_pointBars[i] = {smoothAnimateCoordinatesReturner(previousX2_forAnimation_2, 0), oldY, 0, 0, oldscrollDisplayNow, oldСlick_throughs};
+        disappearing_pointBars[i] = {smoothAnimateCoordinatesReturner(previousX2_forAnimation_2, 0), oldY, oldСlick_throughs, oldscrollDisplayNow};
         break;
         // amount_disappearing_pointBars++;
       }
     }
-    coordsForRightSide_main = smoothAnimateCoordinatesReturner(0, x2);
     // for (int i = 0; i < array_length(disappearing_pointBars); i++)
     // {
     //   _print(disappearing_pointBars[i].coord_wrapper.coordinates[0]);
