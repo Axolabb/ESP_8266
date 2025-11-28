@@ -95,7 +95,7 @@ const int key_input_button_pins[] = {D5, D6, D7, D0};
 
 long lastOpenTime[array_length(key_input_button_pins)] = {0}; // Чтобы норм регать клики без дублей
 
-const long minOpenTime = 100; // Минимальный интервал при зажатии и будет дубликат
+const long minOpenTime = 200; // Минимальный интервал при зажатии и будет дубликат
 
 // int oldAW = 255;
 // bool loopik_is_ended = true;
@@ -185,8 +185,10 @@ void bright_handle()
 // --------------  #region UI Functions + Dirs ---------------------
 
 // #endregion
-int scrollUnitY = 0;        // Сколько раз сниз клик
-int scrollUnitYCounter = 0; // Сколько дисплеев прокручено
+int scrollUnitY = 0;      // Сколько раз сниз клик
+int scrollDisplayNow = 0; // Сколько дисплеев прокручено
+
+int click_throughs = 0; // Сколько директориев прокручено
 
 const int text_height = 14;
 const int oled_height = 63;
@@ -244,7 +246,7 @@ UIDir OTA_dir[] = {
 void editDir(MenuType name)
 {
   scrollUnitY = 0;
-  scrollUnitYCounter = 0;
+  scrollDisplayNow = 0;
   activeMenu = name;
 }
 
@@ -486,8 +488,7 @@ void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amount
     oldY2 = y2;
     previousY2_forAnimation = y2;
   }
-  static int stepNow = 0;
-  static int maxSteps = framesAmount;
+  static int nowFrame = 0;
   static bool isSteps = false;
   static animationData coordsForTopSide;
   static animationData coordsForBottomSide;
@@ -513,21 +514,21 @@ void animation_andRender_scrollbar(int y1, int y2, char mode = 'o', float amount
     oldY1 = y1;
     oldY2 = y2;
 
-    stepNow = 0;
+    nowFrame = 0;
     isSteps = true;
   }
   if (millis() - millis_spent >= millis_necessary_to_frame && isSteps)
   { // Каждый например 4 фпс делаем фрейм (Чтобы по времени все было)
     millis_spent = millis();
-    if (stepNow < maxSteps)
+    if (nowFrame < framesAmount)
     {
-      previousY1_forAnimation = coordsForTopSide.coordinates[stepNow];
-      previousY2_forAnimation = coordsForBottomSide.coordinates[stepNow];
-      u8g2.drawLine(oled_width, coordsForTopSide.coordinates[stepNow], oled_width, coordsForBottomSide.coordinates[stepNow]);
+      previousY1_forAnimation = coordsForTopSide.coordinates[nowFrame];
+      previousY2_forAnimation = coordsForBottomSide.coordinates[nowFrame];
+      u8g2.drawLine(oled_width, coordsForTopSide.coordinates[nowFrame], oled_width, coordsForBottomSide.coordinates[nowFrame]);
       // _print(previousY1_forAnimation);
-      // _print(" (stepNow < maxSteps) ");
+      // _print(" (nowFrame < maxSteps) ");
       // _println(previousY2_forAnimation);
-      stepNow++;
+      nowFrame++;
     }
     else
     {
@@ -550,105 +551,134 @@ unsigned long millis_spent_pointBar = 0;
 
 struct animationData_disappearing
 {
-  animationData coords;
-  int y;
-  unsigned long previousMillis;
+  animationData coord_wrapper;
+  int y = NONE;
+  unsigned long previousMillis = 0;
+  int now_frame = 0;
+  int display_now = 0;
+  int dir_now = 0;
 };
 
-animationData_disappearing disappearing_pointBars[20];
-int amount_disappearing_pointBars = 0;
-void once_disappearing_pointBar(int index)
+animationData_disappearing disappearing_pointBars[20]{};
+// int amount_disappearing_pointBars = 0;
+void processing_disappearing_pointBars(int index)
 {
+  int y_coord = disappearing_pointBars[index].y;
+  if (millis() - disappearing_pointBars[index].previousMillis >= millis_necessary_to_frame)
+  {
+    disappearing_pointBars[index].previousMillis = millis();
+    if (disappearing_pointBars[index].now_frame < framesAmount)
+    {
+      if (scrollDisplayNow == disappearing_pointBars[index].display_now && click_throughs == disappearing_pointBars[index].dir_now)
+      {
+        u8g2.drawLine(0, y_coord, disappearing_pointBars[index].coord_wrapper.coordinates[disappearing_pointBars[index].now_frame], y_coord);
+      }
+      disappearing_pointBars[index].now_frame++;
+    }
+    else
+    {
+      disappearing_pointBars[index].y = NONE;
+    }
+  }
+  else
+  {
+    u8g2.drawLine(0, y_coord, disappearing_pointBars[index].coord_wrapper.coordinates[disappearing_pointBars[index].now_frame], y_coord);
+  }
 }
 void animation_andRender_pointBar(int y, int x2, char mode = 'o', float amountOfSpeedAtFirstStage = 100.0 / 100.0 + 1.0)
 {
   static int oldY = -9999;
+  static int oldscrollDisplayNow;
+  static int oldСlick_throughs;
   static int oldX;
-  static int previousX2_forAnimation_1;
   static int previousX2_forAnimation_2 = -1;
   if (oldY == -9999)
   {
     oldY = y;
+    oldscrollDisplayNow = scrollDisplayNow;
+    oldСlick_throughs = click_throughs;
     oldX = x2;
     // previousX1_forAnimation_1 = x1;
     // oldX2 = x2;
-    // previousX2_forAnimation_1 = x2;
   }
-  static int stepNow = 0;
-  static int maxSteps = framesAmount;
+  static int nowFrame = 0;
   static bool isSteps = false;
-  static animationData coordsForRightSide_disappearing;
   static animationData coordsForRightSide_main;
-  if (oldY == y && !isSteps)
+  if (oldY == y && oldX == x2 && !isSteps)
   {
     u8g2.drawLine(0, y, x2, y);
   }
-  else if (oldY != y)
+  else if (oldY != y || oldX != x2)
   {
-    for (int i = 0; i < array_length(disappearing_pointBars); i++) {
-      if (disappearing_pointBars[i].y == NONE) {
-        disappearing_pointBars[i] = {smoothAnimateCoordinatesReturner(oldX, 0), oldY, 0};
-        amount_disappearing_pointBars++;
+    for (int i = 0; i < array_length(disappearing_pointBars); i++)
+    {
+      if (disappearing_pointBars[i].y == NONE)
+      {
+        disappearing_pointBars[i] = {smoothAnimateCoordinatesReturner(previousX2_forAnimation_2, 0), oldY, 0, 0, oldscrollDisplayNow, oldСlick_throughs};
+        break;
+        // amount_disappearing_pointBars++;
       }
     }
     coordsForRightSide_main = smoothAnimateCoordinatesReturner(0, x2);
-    // for (int i = 0; i < amount_disappearing_pointBars; i++)
+    // for (int i = 0; i < array_length(disappearing_pointBars); i++)
     // {
-    //   _println(disappearing_pointBars[i].coords.coordinates[i]);
-    //   _println(disappearing_pointBars[i].previousMillis);
-    //   _println(disappearing_pointBars[i].y);
+    //   _print(disappearing_pointBars[i].coord_wrapper.coordinates[0]);
+    //   _print(" - ");
+    //   _print(disappearing_pointBars[i].y);
+    //   _print(" - ");
+    //   _print(disappearing_pointBars[i].previousMillis);
+    //   _print(" - ");
+    //   _print(disappearing_pointBars[i].now_frame);
+    //   _println();
     // }
     oldY = y;
-    stepNow = 0;
+    oldX = x2;
+    oldscrollDisplayNow = scrollDisplayNow;
+    oldСlick_throughs = click_throughs;
+    nowFrame = 0;
     isSteps = true;
   }
   if (millis() - millis_spent_pointBar >= millis_necessary_to_frame && isSteps)
   { // Каждый например 4 фпс делаем фрейм (Чтобы по времени все было)
     millis_spent_pointBar = millis();
-    if (stepNow < maxSteps)
+    if (nowFrame < framesAmount)
     {
-      previousX2_forAnimation_1 = coordsForRightSide_disappearing.coordinates[stepNow];
 
-      previousX2_forAnimation_2 = coordsForRightSide_main.coordinates[stepNow];
-      // u8g2.drawLine(0, previousY_forAnimation_1, previousX2_forAnimation_1, previousY_forAnimation_1);
+      previousX2_forAnimation_2 = coordsForRightSide_main.coordinates[nowFrame];
       u8g2.drawLine(0, y, previousX2_forAnimation_2, y);
-      // _print(previousX2_forAnimation_1);
-      // _print(" (stepNow < maxSteps) ");
+      // _print(" (nowFrame < maxSteps) ");
       // _println(previousX2_forAnimation_2);
-      stepNow++;
+      nowFrame++;
     }
     else
     {
-      // u8g2.drawLine(0, previousY_forAnimation_1, previousX2_forAnimation_1, previousY_forAnimation_1);
       u8g2.drawLine(0, y, previousX2_forAnimation_2, y);
-      // _print(previousX2_forAnimation_1);
-      // _print(" (stepNow < maxSteps) ");
+      // _print(" (nowFrame < maxSteps) ");
       // _println(previousX2_forAnimation_2);
 
       isSteps = false;
-      previousX2_forAnimation_1 = coordsForRightSide_main.coordinates[array_length(coordsForRightSide_main.coordinates) - 1];
     }
   }
   else if (isSteps)
   {
-    // u8g2.drawLine(0, previousY_forAnimation_1, previousX2_forAnimation_1, previousY_forAnimation_1);
     u8g2.drawLine(0, y, previousX2_forAnimation_2, y);
-    // _print(previousX2_forAnimation_1);
-    // _print(" (stepNow < maxSteps) ");
+    // _print(" (nowFrame < maxSteps) ");
     // _println(previousX2_forAnimation_2);
   }
-  // if (coordsForRightSide_disappearing) {
-  //   once_disappearing_pointBar(coordsForRightSide_disappearing);
-  // }
+  for (int i = 0; i < array_length(disappearing_pointBars); i++)
+  {
+    if (disappearing_pointBars[i].y != NONE)
+    {
+      processing_disappearing_pointBars(i);
+    }
+  }
 }
-
-int click_throughs = 0;
 
 void displayTools(UIDir array[], int length)
 { // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
   u8g2.clearBuffer();
   animation_andRender_pointBar(text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay), u8g2.getStrWidth(array[scrollUnitY].name));
-  for (int i = 0; i < (length - optionsPerViewDisplay * scrollUnitYCounter); i++)
+  for (int i = 0; i < (length - optionsPerViewDisplay * scrollDisplayNow); i++)
   {
     int separator = 0;
     if (i != 0)
@@ -663,9 +693,9 @@ void displayTools(UIDir array[], int length)
     {
       u8g2.setCursor(0, text_height * (i + 1) + separator * i);
     }
-    u8g2.print(array[i + optionsPerViewDisplay * scrollUnitYCounter].name);
+    u8g2.print(array[i + optionsPerViewDisplay * scrollDisplayNow].name);
   }
-  animation_andRender_scrollbar(scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length), scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length) + (oled_height * optionsPerViewDisplay / length) > oled_height ? oled_height : scrollUnitYCounter * (oled_height * optionsPerViewDisplay / length) + (oled_height * optionsPerViewDisplay / length)); // Скролл бар
+  animation_andRender_scrollbar(scrollDisplayNow * (oled_height * optionsPerViewDisplay / length), scrollDisplayNow * (oled_height * optionsPerViewDisplay / length) + (oled_height * optionsPerViewDisplay / length) > oled_height ? oled_height : scrollDisplayNow * (oled_height * optionsPerViewDisplay / length) + (oled_height * optionsPerViewDisplay / length)); // Скролл бар
   u8g2.sendBuffer();
 
   if (isPressedKey(0)) // *
@@ -688,17 +718,17 @@ void displayTools(UIDir array[], int length)
     {
       activeMenu = directories[click_throughs - 1].previousActiveMenu;
       scrollUnitY = directories[click_throughs - 1].activeUnitY;
-      int scrollUnitYCopy = scrollUnitY;
-      int x = 0;
-      while (scrollUnitYCopy >= 4)
-      {
-        if (scrollUnitYCopy % 4 == 0)
-        {
-          x++;
-        }
-        scrollUnitYCopy--;
-      }
-      scrollUnitYCounter = x;
+      // int scrollUnitYCopy = scrollUnitY;
+      // int x = 0;
+      // while (scrollUnitYCopy >= 4)
+      // {
+      //   if (scrollUnitYCopy % 4 == 0)
+      //   {
+      //     x++;
+      //   }
+      //   scrollUnitYCopy--;
+      // }
+      scrollDisplayNow = scrollUnitY / 4;
       click_throughs--;
     }
   }
@@ -706,9 +736,9 @@ void displayTools(UIDir array[], int length)
   {
     if (scrollUnitY < length - 1) // из за индексации
     {
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % optionsPerViewDisplay == 0)
       {
-        scrollUnitYCounter++;
+        scrollDisplayNow++;
       }
       scrollUnitY++;
     }
@@ -718,9 +748,9 @@ void displayTools(UIDir array[], int length)
     if (scrollUnitY > 0)
     {
       scrollUnitY--;
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % 4 == 0)
+      if (scrollUnitY != 0 && (scrollUnitY + 1) % optionsPerViewDisplay == 0)
       {
-        scrollUnitYCounter--;
+        scrollDisplayNow--;
       }
     }
   }
@@ -817,7 +847,7 @@ void delete_file()
     }
     scrollUnitYCopy--;
   }
-  scrollUnitYCounter = x;
+  scrollDisplayNow = x;
   click_throughs--;
   click_throughs--;
 }
@@ -1018,6 +1048,14 @@ int FPSCounter = 0;
 long previousMillis = 0;
 void loop()
 {
+  FPSCounter++;
+  if (millis() - FPScounterIntervalCheckPreviousMillis >= FPScounterIntervalCheck)
+  {
+    FPScounterIntervalCheckPreviousMillis = millis();
+    _print(FPSCounter);
+    _println(" - FPS");
+    FPSCounter = 0;
+  }
   displayMenu(activeMenu);
   // if (millis() - previousMillis >= MillisForfiftyFPS)
   // {
