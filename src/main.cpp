@@ -89,7 +89,7 @@ struct DirectoryRoute
 DirectoryRoute directories[5] = { // Для истории по # и *
     {MAIN, 0}};
 
-const int key_input_button_pins[] = {D5, D6, D7, D0};
+const int key_input_button_pins[] = {D7, D6, D5, D0}; // D7 = K4 = ^       D6 = K3 = Down        D5 = K2 = #          D0 = K1 = *
 // const int key_input_general_pins[];
 // const int key_output_pins[] = {LED_BUILTIN};
 
@@ -618,8 +618,6 @@ void animation_andRender_pointBar(int y, int x2, char mode = 'o', float amountOf
     {
       if (disappearing_pointBars[i].y == y)
       {
-        _print("Нашел. Меняем - ");
-        _println(disappearing_pointBars[i].previousX2_forAnimation);
         disappearing_pointBars[i].y = NONE;
         coordsForRightSide_main = smoothAnimateCoordinatesReturner(disappearing_pointBars[i].previousX2_forAnimation, x2);
         break;
