@@ -27,6 +27,7 @@ enum MenuType
   NONE,
   MAIN,
   WIFI_DIR,
+  WIFI_DEBUG,
   STORAGE_FS,
   WEB,
   OTA,
@@ -34,7 +35,7 @@ enum MenuType
   WIFI_SCANNED,
   StorageFS_D,
   StorageFS_R,
-  StorageFS_R_F
+  StorageFS_R_F,
 };
 
 struct UIDir
@@ -47,7 +48,7 @@ struct UIDir
 
 // ---------------------------------------- РАННИЕ ОБЬЯВЛЕНИЯ ФУНКЦИЙ ДЛЯ КРАСОТЫ КОДА И РЕШЕНИЯ ПРОБЛЕМ КУРИЦА-ЯЙЦО  ---------------------------------------------------
 
-String FlashEdit(const char *path, const char *message_string, const int message_int, char mode);
+String FlashEdit(const char *path, const char *message_string, const int message_int, const char *mode);
 void load_saved_wifi();
 void certain_wifi_link();
 void checkWifiStatus();
@@ -137,7 +138,7 @@ const char *actualWifiSSID;
 const char *actualWifiPassword;
 
 String scan_wifi_stringed[51];
-String file_system_stringed[12];
+String file_system_stringed[50];
 String read_file_stringed;
 
 const int FPS = 20;
@@ -150,7 +151,7 @@ const int FPS = 20;
 
 void root_handle()
 {
-  String html = FlashEdit("/index.html", "", -1, 'r');
+  String html = FlashEdit("/index.html", "", -1, "r");
   if (html != "")
   {
     server.send(200, "text/html", html);
@@ -170,7 +171,7 @@ void bright_handle()
     if (int_value >= 0 && int_value <= 100)
     {
       analogWrite(2, 255 - (255 * int_value) / 100);
-      FlashEdit("/percentOn.txt", "", int_value, 'w');
+      FlashEdit("/percentOn.txt", "", int_value, "w");
       server.send(200, "text/plain", "Установлена яркость: " + value + "%"); // Отправляем для отладки
     }
   }
@@ -216,31 +217,36 @@ UIDir dirs[] = {
 };
 
 UIDir WIFI_scanned[array_length(scan_wifi_stringed)] = { // Допустим максимум 50 точек
-    {"", nullptr, NONE, nullptr}};
+    {"*Status*", nullptr, NONE, nullptr}};
 UIDir WIFI_saved[array_length(wifi_devices) + 1] = {
-    {"", nullptr, NONE, nullptr}};
+    {"*Status*", nullptr, NONE, nullptr}};
 UIDir WIFI[] = {
-    {"", nullptr, NONE, nullptr}, // Пустые для статуса
+    {"*Status*", nullptr, NONE, nullptr}, // Пустые для статуса
     {"Saved WiFi", editDir, WIFI_SAVED, load_saved_wifi},
     {"Scan WiFi", editDir, WIFI_SCANNED, scan_wifi},
     {"Disconnect", nullptr, NONE, wifi_disconnect}};
+UIDir WIFI_debug[] = {
+    {"Connecting to: ", nullptr, NONE, nullptr}, // Тут не видно поинтбара
+    {"*WiFI_Name*", nullptr, NONE, nullptr},
+    {"...", nullptr, NONE, nullptr},
+};
 
 UIDir StorageFS[] = {
     {"Read File", editDir, StorageFS_R, openFileSystem},
     {"Delete File", editDir, StorageFS_D, openFileSystem}};
 UIDir StorageFS_Delete[array_length(file_system_stringed)] = {
-    {"N/A", nullptr, NONE, nullptr},
+    {"*File*", nullptr, NONE, nullptr},
 };
 UIDir StorageFS_Read[array_length(file_system_stringed)] = {
-    {"N/A", nullptr, NONE, nullptr},
+    {"*File*", nullptr, NONE, nullptr},
 };
 UIDir StorageFS_Read_File[1];
 
 UIDir WebServer[] = {
-    {"", nullptr, NONE, nullptr},
+    {"*Status*", nullptr, NONE, nullptr},
     {"Open", nullptr, NONE, webEditStatus}};
 UIDir OTA_dir[] = {
-    {"", nullptr, NONE, nullptr},
+    {"*Status*", nullptr, NONE, nullptr},
     {"Unlock", nullptr, NONE, OTAEditStatus}};
 
 void editDir(MenuType name)
@@ -331,23 +337,19 @@ void checkWifiStatus()
   WIFI_saved[0] = {status, nullptr, NONE, nullptr};
   WIFI_scanned[0] = {status, nullptr, NONE, nullptr};
 }
-
+int count_of_scanned = 50;
 void scan_wifi()
 {
   WiFi.disconnect();
   WiFi.mode(WIFI_STA); // Станция
   delay(100);
-  int count_of_scanned = WiFi.scanNetworks();
+  count_of_scanned = WiFi.scanNetworks();
   if (count_of_scanned != 0)
   {
     for (int i = 0; i < count_of_scanned; i++)
     {
       scan_wifi_stringed[i] = WiFi.SSID(i); // Новые ставим
       WIFI_scanned[i + 1] = {scan_wifi_stringed[i].c_str(), nullptr, NONE, tryToSome_wifi_link};
-    };
-    for (int i = count_of_scanned; i < array_length(WIFI_scanned) - 1; i++)
-    {
-      WIFI_scanned[i + 1] = {"N/A", nullptr, NONE, nullptr};
     };
   }
   WiFi.begin(actualWifiSSID, actualWifiPassword);
@@ -408,6 +410,13 @@ void checkOTAStatus()
   OTA_dir[0] = {status, nullptr, NONE, nullptr};
 }
 
+void ifGridClicked() // #
+{
+  activeMenu = directories[click_throughs - 1].previousActiveMenu;
+  scrollUnitY = directories[click_throughs - 1].activeUnitY;
+  scrollDisplayNow = scrollUnitY / optionsPerViewDisplay;
+  click_throughs--;
+}
 // Animation vars
 const int framesAmount = 20; // Колво этапов анимации / прогрессия уменьшения скорости. Чем больше тем хуже тк высота экранчика то маленькая
 
@@ -594,14 +603,14 @@ void animation_andRender_pointBar(int y, int x2, char mode = 'o', float amountOf
   static int oldscrollDisplayNow;
   static int oldСlick_throughs;
   static int oldX;
-  static int previousX2_forAnimation_2 = -1;
+  static int previousX2_forAnimation_2;
   if (oldY == -9999)
   {
     oldY = y;
     oldscrollDisplayNow = scrollDisplayNow;
     oldСlick_throughs = click_throughs;
     oldX = x2;
-    // previousX1_forAnimation_1 = x1;
+    previousX2_forAnimation_2 = x2;
     // oldX2 = x2;
   }
   static int nowFrame = 0;
@@ -729,20 +738,7 @@ void displayTools(UIDir array[], int length)
   {
     if (click_throughs > 0)
     {
-      activeMenu = directories[click_throughs - 1].previousActiveMenu;
-      scrollUnitY = directories[click_throughs - 1].activeUnitY;
-      // int scrollUnitYCopy = scrollUnitY;
-      // int x = 0;
-      // while (scrollUnitYCopy >= 4)
-      // {
-      //   if (scrollUnitYCopy % 4 == 0)
-      //   {
-      //     x++;
-      //   }
-      //   scrollUnitYCopy--;
-      // }
-      scrollDisplayNow = scrollUnitY / 4;
-      click_throughs--;
+      ifGridClicked();
     }
   }
   if (isPressedKey(2)) // ˅
@@ -769,6 +765,7 @@ void displayTools(UIDir array[], int length)
   }
 }
 
+int count_of_files = 0;
 void displayMenu(MenuType menu)
 {
   switch (menu)
@@ -792,89 +789,72 @@ void displayMenu(MenuType menu)
     displayTools(WIFI_saved, array_length(WIFI_saved));
     break;
   case WIFI_SCANNED:
-    displayTools(WIFI_scanned, array_length(WIFI_scanned));
+    displayTools(WIFI_scanned, count_of_scanned);
     break;
   case StorageFS_D:
-    displayTools(StorageFS_Delete, array_length(StorageFS_Delete));
+    displayTools(StorageFS_Delete, count_of_files);
     break;
   case StorageFS_R:
-    displayTools(StorageFS_Read, array_length(StorageFS_Read));
+    displayTools(StorageFS_Read, count_of_files);
     break;
   case StorageFS_R_F:
     displayTools(StorageFS_Read_File, array_length(StorageFS_Read_File));
+    break;
+  case WIFI_DEBUG:
+    displayTools(WIFI_debug, array_length(WIFI_debug));
     break;
   case NONE:
     break;
   }
 }
 
-bool wifi_is_finding = false;
 void wifi_connecting_debug(const char *ssid)
 {
-  if (!wifi_is_finding)
+  editDir(WIFI_DEBUG);
+  int point_counter = 0;
+  unsigned long start_timer = millis();
+  unsigned long previousMillis_start_timer = 0;
+  char download_point_buffer[10];
+  while (WiFi.status() != WL_CONNECTED && millis() - start_timer < 10000) // Блокод.
   {
-    wifi_is_finding = true;
-
-    int counter = 0;
-    float timer = 0;
-    while (WiFi.status() != WL_CONNECTED && timer != 10)
-    {
-      u8g2.clearBuffer();
-      u8g2.setCursor(0, 14);
-      u8g2.println("Connecting: ");
-      u8g2.setCursor(0, 30);
-      u8g2.println(ssid);
-      u8g2.setCursor(0, 46);
-      counter++;
-      for (int i = counter % 3 + 1; i > 0; i--)
+    if(millis() - previousMillis_start_timer >= 500) {
+      _print("Точка ");
+      _println(point_counter % 3);
+      previousMillis_start_timer = millis();
+      // WIFI_debug[0].name = "Connecting to: ";
+      WIFI_debug[1].name = ssid;
+      // WIFI_debug[2].name = ".";
+      strcpy(download_point_buffer, "."); // функции ориентируются на то, где стоит первый \0.
+      for (int i = point_counter % 3; i > 0; i--)
       {
-        u8g2.print('.');
+        strcat(download_point_buffer, ".");
       }
-      u8g2.sendBuffer();
-      digitalWrite(2, LOW);
-      delay(250);
-      digitalWrite(2, HIGH);
-      delay(250);
-      timer += 0.5;
+      WIFI_debug[2].name = download_point_buffer;
+      point_counter++;
     }
-
-    wifi = timer == 10 ? nullptr : ssid;
-    checkWifiStatus();
-
-    wifi_is_finding = false;
   }
+  ifGridClicked();
+  wifi = millis() - start_timer >= 10000 ? nullptr : ssid;
+  _println(wifi);
+  checkWifiStatus();
 }
 
 void delete_file()
 {
-  FlashEdit(StorageFS_Delete[scrollUnitY].name, "", -1, 'd');
-  activeMenu = directories[click_throughs - 1].previousActiveMenu;
-  scrollUnitY = directories[click_throughs - 1].activeUnitY;
-  int scrollUnitYCopy = scrollUnitY;
-  int x = 0;
-  while (scrollUnitYCopy >= 4)
-  {
-    if (scrollUnitYCopy % 4 == 0)
-    {
-      x++;
-    }
-    scrollUnitYCopy--;
-  }
-  scrollDisplayNow = x;
-  click_throughs--;
-  click_throughs--;
+  FlashEdit(StorageFS_Delete[scrollUnitY].name, "", -1, "d");
+  ifGridClicked();
 }
 
 void read_file()
 {
-  read_file_stringed = FlashEdit(StorageFS_Read[scrollUnitY].name, "", -1, 'r');
+  read_file_stringed = FlashEdit(StorageFS_Read[scrollUnitY].name, "", -1, "r");
   StorageFS_Read_File[0] = {read_file_stringed.c_str(), nullptr, NONE, nullptr};
 }
 
 void openFileSystem()
 {
   Dir dir = LittleFS.openDir("/");
-  int count_of_files = 0;
+  count_of_files = 0;
   while (dir.next() && count_of_files < 12)
   {
     file_system_stringed[count_of_files] = dir.fileName();
@@ -887,11 +867,6 @@ void openFileSystem()
       StorageFS_Delete[i] = {file_system_stringed[i].c_str(), nullptr, NONE, delete_file};
       StorageFS_Read[i] = {file_system_stringed[i].c_str(), editDir, StorageFS_R_F, read_file};
     };
-    for (int i = count_of_files; i < array_length(StorageFS_Delete); i++)
-    {
-      StorageFS_Delete[i] = {"N/A", nullptr, NONE, nullptr};
-      StorageFS_Read[i] = {"N/A", nullptr, NONE, nullptr};
-    };
   }
 }
 
@@ -900,7 +875,7 @@ void openFileSystem()
 // ------------------- FLASH  -----------------
 char buffer[64]; // Для передач переменных в аргумент сообщения. Работа с адресными Чарами. Учитываем что 64 - максимальный размер передаваемого инта
 
-String FlashEdit(const char *path, const char *message_string, const int message_int, char mode)
+String FlashEdit(const char *path, const char *message_string, const int message_int, const char *mode)
 {
   if (flash_is_avialable)
   {
@@ -913,7 +888,6 @@ String FlashEdit(const char *path, const char *message_string, const int message
         path = statusBuffer;
       };
     }
-    const char *search_mode = nullptr;
     const char *search_message = nullptr;
     if (message_int != -1)
     {
@@ -924,28 +898,7 @@ String FlashEdit(const char *path, const char *message_string, const int message
     {
       search_message = message_string;
     }
-
-    switch (mode) // более проще чем elseif. Да и впринципе проба
-    {
-    case 'r':
-      search_mode = "r";
-      break;
-    case 'a':
-      search_mode = "a";
-      break;
-    case 'w':
-      search_mode = "w";
-      break;
-    case 'd':
-      LittleFS.remove(path);
-      return "";
-      break;
-
-    default:
-      _println("Ошибка: Недопустимый режим (R, W, A)");
-      break;
-    }
-    File file = LittleFS.open(path, search_mode);
+    File file = LittleFS.open(path, mode);
     if (!file)
     {
       _print("Не обнаружен файл для функции ");
@@ -954,7 +907,7 @@ String FlashEdit(const char *path, const char *message_string, const int message
       _println(path);
       return "";
     }
-    if (mode == 'r')
+    if (strcmp(mode, "r") == 0) // Сравнивание
     {
       String fileContent = ""; // Аналог буфера
       _print("Функция чтения (R) выполнена. Содержимое файла (");
@@ -968,7 +921,7 @@ String FlashEdit(const char *path, const char *message_string, const int message
       _println(fileContent);
       return fileContent;
     }
-    if (mode == 'w')
+    if (strcmp(mode, "w") == 0)
     {
       if (file.print(search_message))
       {
@@ -989,7 +942,7 @@ String FlashEdit(const char *path, const char *message_string, const int message
         _println("Функция записи (W) НЕ выполнена");
       }
     }
-    if (mode == 'a')
+    if (strcmp(mode, "a") == 0)
     {
       file.print(search_message);
       file.println(); // чтобы след запись была с новой строки. Для логов и подобное
@@ -1054,11 +1007,9 @@ void setup()
   ArduinoOTA.setHostname(host_dns);
 }
 // String* name_tools = other_tools;
-const long MillisForfiftyFPS = 1000 / FPS;
 const long FPScounterIntervalCheck = 1000;
 long FPScounterIntervalCheckPreviousMillis = 0;
 int FPSCounter = 0;
-long previousMillis = 0;
 void loop()
 {
   FPSCounter++;
@@ -1070,18 +1021,6 @@ void loop()
     FPSCounter = 0;
   }
   displayMenu(activeMenu);
-  // if (millis() - previousMillis >= MillisForfiftyFPS)
-  // {
-  //   previousMillis = millis();
-  //   FPSCounter++;
-  // }
-  // if (millis() - FPScounterIntervalCheckPreviousMillis >= FPScounterIntervalCheck)
-  // {
-  //   FPScounterIntervalCheckPreviousMillis = millis();
-  //   _print(FPSCounter);
-  //   _println(" - FPS");
-  //   FPSCounter = 0;
-  // }
   // MDNS.update();         // Обработка ДНС. ОТЛОЖЕНО
   if (isOTA)
   {
