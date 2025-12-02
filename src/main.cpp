@@ -41,9 +41,10 @@ enum MenuType
 struct UIDir
 {
   const char *name;
-  void (*edit)(MenuType); // Смена ДИРа
-  MenuType type;          // Тайп для смена ДИРа
-  void (*function)();     // Функциональная
+  void (*edit)(char, MenuType); // Смена ДИРа
+  MenuType type;                // Тайп для смена ДИРа
+  void (*function)();           // Функциональная
+  bool isServiceOption = false;
 };
 
 // ---------------------------------------- РАННИЕ ОБЬЯВЛЕНИЯ ФУНКЦИЙ ДЛЯ КРАСОТЫ КОДА И РЕШЕНИЯ ПРОБЛЕМ КУРИЦА-ЯЙЦО  ---------------------------------------------------
@@ -55,7 +56,7 @@ void checkWifiStatus();
 void checkWebStatus();
 void checkOTAStatus();
 void wifi_connecting_debug(const char *ssid);
-void editDir(MenuType name);
+void editDir(char mode, MenuType name = NONE);
 void webEditStatus();
 void OTAEditStatus();
 void scan_wifi();
@@ -87,7 +88,7 @@ struct DirectoryRoute
   int activeUnitY;
 };
 
-DirectoryRoute directories[5] = { // Для истории по # и *
+DirectoryRoute directories[10] = { // Для истории по # и *
     {MAIN, 0}};
 
 const int key_input_button_pins[] = {D7, D6, D5, D0}; // D7 = K4 = ^       D6 = K3 = Down        D5 = K2 = #          D0 = K1 = *
@@ -196,6 +197,8 @@ const int oled_height = 63;
 const int oled_width = 127;
 const int optionsPerViewDisplay = 4;
 
+bool wifi_is_connecting = false;
+
 // int maxHeight = 64;
 // int maxWeight = 128;
 UIDir dirs[] = {
@@ -205,30 +208,30 @@ UIDir dirs[] = {
     {"Web Server", editDir, WEB, checkWebStatus},
     {"OTA Upload", editDir, OTA, checkOTAStatus},
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus, true},
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus, true},
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus, true},
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus, true},
     {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
-    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
-    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
-    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
-    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
-    {"WiFi", editDir, WIFI_DIR, checkWifiStatus},
+    {"WiFi", editDir, WIFI_DIR, checkWifiStatus, true},
 };
 
 UIDir WIFI_scanned[array_length(scan_wifi_stringed)] = { // Допустим максимум 50 точек
-    {"*Status*", nullptr, NONE, nullptr}};
+    {"*Status*", nullptr, NONE, nullptr, true}};
 UIDir WIFI_saved[array_length(wifi_devices) + 1] = {
-    {"*Status*", nullptr, NONE, nullptr}};
+    {"*Status*", nullptr, NONE, nullptr, true}};
 UIDir WIFI[] = {
-    {"*Status*", nullptr, NONE, nullptr}, // Пустые для статуса
+    {"*Status*", nullptr, NONE, nullptr, true}, // Пустые для статуса
     {"Saved WiFi", editDir, WIFI_SAVED, load_saved_wifi},
     {"Scan WiFi", editDir, WIFI_SCANNED, scan_wifi},
     {"Disconnect", nullptr, NONE, wifi_disconnect}};
 UIDir WIFI_debug[] = {
-    {"Connecting to: ", nullptr, NONE, nullptr}, // Тут не видно поинтбара
-    {"*WiFI_Name*", nullptr, NONE, nullptr},
-    {"...", nullptr, NONE, nullptr},
+    {"Connect to: ", nullptr, NONE, nullptr, true}, // Если везде служебка то не отображаем
+    {"*WiFI_Name*", nullptr, NONE, nullptr, true},
+    {"...", nullptr, NONE, nullptr, true},
 };
 
 UIDir StorageFS[] = {
@@ -243,17 +246,30 @@ UIDir StorageFS_Read[array_length(file_system_stringed)] = {
 UIDir StorageFS_Read_File[1];
 
 UIDir WebServer[] = {
-    {"*Status*", nullptr, NONE, nullptr},
+    {"*Status*", nullptr, NONE, nullptr, true},
     {"Open", nullptr, NONE, webEditStatus}};
 UIDir OTA_dir[] = {
-    {"*Status*", nullptr, NONE, nullptr},
+    {"*Status*", nullptr, NONE, nullptr, true},
     {"Unlock", nullptr, NONE, OTAEditStatus}};
 
-void editDir(MenuType name)
+void editDir(char mode, MenuType name)
 {
-  scrollUnitY = 0;
-  scrollDisplayNow = 0;
-  activeMenu = name;
+  if (mode == '*')
+  {
+    directories[click_throughs].activeUnitY = scrollUnitY;
+    click_throughs++;
+    directories[click_throughs] = {name, 0};
+    scrollUnitY = 0;
+    scrollDisplayNow = 0;
+    activeMenu = name;
+  }
+  else if (mode == '#')
+  {
+    activeMenu = directories[click_throughs - 1].previousActiveMenu;
+    scrollUnitY = directories[click_throughs - 1].activeUnitY;
+    scrollDisplayNow = scrollUnitY / optionsPerViewDisplay;
+    click_throughs--;
+  }
 }
 
 bool isPressedKey(int index)
@@ -285,7 +301,8 @@ void certain_wifi_link()
       actualWifiSSID = wifi_devices[i].ssid;
       actualWifiPassword = wifi_devices[i].password;
       WiFi.begin(actualWifiSSID, actualWifiPassword);
-      wifi_connecting_debug(wifi_devices[i].ssid);
+      wifi_is_connecting = true;
+      editDir('*', WIFI_DEBUG);
     }
   }
 }
@@ -302,7 +319,8 @@ void tryToSome_wifi_link()
       WiFi.begin(actualWifiSSID, actualWifiPassword);
       wifi = actualWifiSSID;
       checkWifiStatus();
-      wifi_connecting_debug(wifi_devices[i].ssid);
+      wifi_is_connecting = true;
+      editDir('*', WIFI_DEBUG);
     }
   }
 }
@@ -333,17 +351,15 @@ void checkWifiStatus()
     statusAssemleText = statusBuffer;
   };
   const char *status = wifi ? statusAssemleText : "S: No WiFI";
-  WIFI[0] = {status, nullptr, NONE, nullptr};
-  WIFI_saved[0] = {status, nullptr, NONE, nullptr};
-  WIFI_scanned[0] = {status, nullptr, NONE, nullptr};
+  WIFI[0].name = status;
+  WIFI_saved[0].name = status;
+  WIFI_scanned[0].name = status;
 }
-int count_of_scanned = 50;
-void scan_wifi()
+int count_of_scanned = 2; // Для статуса и лоадинга
+
+void upload_scanned_wifi(int Async_count_of_scanned)
 {
-  WiFi.disconnect();
-  WiFi.mode(WIFI_STA); // Станция
-  delay(100);
-  count_of_scanned = WiFi.scanNetworks();
+  count_of_scanned = Async_count_of_scanned;
   if (count_of_scanned != 0)
   {
     for (int i = 0; i < count_of_scanned; i++)
@@ -356,6 +372,13 @@ void scan_wifi()
   checkWifiStatus();
 }
 
+void scan_wifi()
+{
+  count_of_scanned = 2;
+  WiFi.scanNetworksAsync(upload_scanned_wifi);
+  WIFI_scanned[1].name = "Loading...";
+}
+
 void webEditStatus()
 {
   if (WiFi.localIP() != IPAddress(0, 0, 0, 0))
@@ -365,13 +388,13 @@ void webEditStatus()
       server.begin();
       isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
       isweb = isweb_stringed.c_str();
-      WebServer[1] = {"Close", nullptr, NONE, webEditStatus};
+      WebServer[1].name = "Close";
     }
     else
     {
       server.stop();
       isweb = nullptr;
-      WebServer[1] = {"Open", nullptr, NONE, webEditStatus};
+      WebServer[1].name = "Open";
     }
     checkWebStatus();
   }
@@ -380,7 +403,7 @@ void webEditStatus()
 void checkWebStatus()
 {
   const char *status = isweb ? isweb : "S: Closed";
-  WebServer[0] = {status, nullptr, NONE, nullptr};
+  WebServer[0].name = status;
 }
 
 void OTAEditStatus()
@@ -392,13 +415,13 @@ void OTAEditStatus()
       ArduinoOTA.begin();
       isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
       isOTA = true;
-      OTA_dir[1] = {"Lock", nullptr, NONE, OTAEditStatus};
+      OTA_dir[1].name = "Lock";
     }
     else
     {
       ArduinoOTA.end();
       isOTA = false;
-      OTA_dir[1] = {"Unlock", nullptr, NONE, OTAEditStatus};
+      OTA_dir[1].name = "Unlock";
     }
     checkOTAStatus();
   }
@@ -407,16 +430,9 @@ void OTAEditStatus()
 void checkOTAStatus()
 {
   const char *status = isOTA ? "S: Enabled" : "S: Disabled";
-  OTA_dir[0] = {status, nullptr, NONE, nullptr};
+  OTA_dir[0].name = status;
 }
 
-void ifGridClicked() // #
-{
-  activeMenu = directories[click_throughs - 1].previousActiveMenu;
-  scrollUnitY = directories[click_throughs - 1].activeUnitY;
-  scrollDisplayNow = scrollUnitY / optionsPerViewDisplay;
-  click_throughs--;
-}
 // Animation vars
 const int framesAmount = 20; // Колво этапов анимации / прогрессия уменьшения скорости. Чем больше тем хуже тк высота экранчика то маленькая
 
@@ -699,7 +715,28 @@ void animation_andRender_pointBar(int y, int x2, char mode = 'o', float amountOf
 void displayTools(UIDir array[], int length)
 { // Если не передавать длину то при счете функцией legnth-array будет указатель на указатель что не есть хорошо
   u8g2.clearBuffer();
-  animation_andRender_pointBar(text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay), u8g2.getStrWidth(array[scrollUnitY].name));
+  bool isServiseDisplay = false;
+  if (array[scrollUnitY].isServiceOption)
+  {
+    bool isFreeFinded = false;
+    for (int j = 0; j < length; j++)
+    {
+      if (!array[j].isServiceOption)
+      {
+        scrollUnitY = j;
+        isFreeFinded = true;
+        break;
+      }
+    }
+    if (!isFreeFinded)
+    {
+      isServiseDisplay = true;
+    }
+  }
+  if (!isServiseDisplay)
+  {
+    animation_andRender_pointBar(text_height * (scrollUnitY % optionsPerViewDisplay + 1) + 2 * (scrollUnitY % optionsPerViewDisplay), u8g2.getStrWidth(array[scrollUnitY].name));
+  }
   for (int i = 0; i < (length - optionsPerViewDisplay * scrollDisplayNow); i++)
   {
     int separator = 0;
@@ -728,40 +765,54 @@ void displayTools(UIDir array[], int length)
     }
     if (array[scrollUnitY].edit)
     {
-      directories[click_throughs].activeUnitY = scrollUnitY;
-      click_throughs++;
-      array[scrollUnitY].edit(array[scrollUnitY].type);
-      directories[click_throughs] = {activeMenu, 0};
+      array[scrollUnitY].edit('*', array[scrollUnitY].type);
     }
   }
   if (isPressedKey(1)) // #
   {
     if (click_throughs > 0)
     {
-      ifGridClicked();
+      editDir('#');
     }
   }
-  if (isPressedKey(2)) // ˅
+  if (isPressedKey(2) && !isServiseDisplay && scrollUnitY < length - 1) // ˅
   {
-    if (scrollUnitY < length - 1) // из за индексации
+    if (array[scrollUnitY + 1].isServiceOption)
     {
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % optionsPerViewDisplay == 0)
+      for (int i = scrollUnitY + 1; i < length; i++)
       {
-        scrollDisplayNow++;
+        if (!array[i].isServiceOption)
+        {
+          scrollUnitY = i;
+          break;
+        }
       }
+    }
+    else
+    {
       scrollUnitY++;
     }
+    scrollDisplayNow = scrollUnitY / optionsPerViewDisplay;
+
   }
-  if (isPressedKey(3)) // ^
+  if (isPressedKey(3) && !isServiseDisplay && scrollUnitY > 0) // ^
   {
-    if (scrollUnitY > 0)
+    if (array[scrollUnitY - 1].isServiceOption)
     {
-      scrollUnitY--;
-      if (scrollUnitY != 0 && (scrollUnitY + 1) % optionsPerViewDisplay == 0)
+      for (int i = scrollUnitY - 1; i > 0; i--)
       {
-        scrollDisplayNow--;
+        if (!array[i].isServiceOption)
+        {
+          scrollUnitY = i;
+          break;
+        }
       }
     }
+    else
+    {
+      scrollUnitY--;
+    }
+    scrollDisplayNow = scrollUnitY / optionsPerViewDisplay;
   }
 }
 
@@ -807,42 +858,59 @@ void displayMenu(MenuType menu)
     break;
   }
 }
-
 void wifi_connecting_debug(const char *ssid)
 {
-  editDir(WIFI_DEBUG);
-  int point_counter = 0;
-  unsigned long start_timer = millis();
-  unsigned long previousMillis_start_timer = 0;
-  char download_point_buffer[10];
-  while (WiFi.status() != WL_CONNECTED && millis() - start_timer < 10000) // Блокод.
+  static int point_counter = 0;
+  static unsigned long start_timer = millis();
+  if (start_timer == 0)
   {
-    if(millis() - previousMillis_start_timer >= 500) {
-      _print("Точка ");
-      _println(point_counter % 3);
-      previousMillis_start_timer = millis();
-      // WIFI_debug[0].name = "Connecting to: ";
-      WIFI_debug[1].name = ssid;
-      // WIFI_debug[2].name = ".";
-      strcpy(download_point_buffer, "."); // функции ориентируются на то, где стоит первый \0.
-      for (int i = point_counter % 3; i > 0; i--)
-      {
-        strcat(download_point_buffer, ".");
-      }
-      WIFI_debug[2].name = download_point_buffer;
-      point_counter++;
-    }
+    start_timer = millis();
   }
-  ifGridClicked();
-  wifi = millis() - start_timer >= 10000 ? nullptr : ssid;
-  _println(wifi);
-  checkWifiStatus();
+  static unsigned long previousMillis_start_timer = 0;
+  static char download_point_buffer[10];
+  if (millis() - previousMillis_start_timer >= 500 && WiFi.status() != WL_CONNECTED && millis() - start_timer < 10000)
+  {
+    point_counter = point_counter % 3;
+    previousMillis_start_timer = millis();
+    // WIFI_debug[0].name = "Connecting to: ";
+    WIFI_debug[1].name = ssid;
+    // WIFI_debug[2].name = ".";
+    strcpy(download_point_buffer, "."); // функции ориентируются на то, где стоит первый \0.
+    for (int i = point_counter % 3; i > 0; i--)
+    {
+      strcat(download_point_buffer, ".");
+    }
+    WIFI_debug[2].name = download_point_buffer;
+    point_counter++;
+  }
+  else if (WiFi.status() == WL_CONNECTED)
+  {
+    wifi_is_connecting = false;
+    if (activeMenu == WIFI_DEBUG)
+    {
+      editDir('#');
+    }
+    start_timer = 0;
+    wifi = ssid;
+    checkWifiStatus();
+  }
+  else if (millis() - start_timer >= 10000)
+  {
+    if (activeMenu == WIFI_DEBUG)
+    {
+      editDir('#');
+    }
+    wifi_is_connecting = false;
+    start_timer = 0;
+    wifi = nullptr;
+    checkWifiStatus();
+  }
 }
 
 void delete_file()
 {
   FlashEdit(StorageFS_Delete[scrollUnitY].name, "", -1, "d");
-  ifGridClicked();
+  editDir('#');
 }
 
 void read_file()
@@ -1016,6 +1084,13 @@ void loop()
   if (millis() - FPScounterIntervalCheckPreviousMillis >= FPScounterIntervalCheck)
   {
     FPScounterIntervalCheckPreviousMillis = millis();
+    for (int i = 0; i < array_length(directories); i++)
+    {
+      _print("previousActiveMenu - ");
+      _println(directories[i].previousActiveMenu);
+      _print("activeUnitY - ");
+      _println(directories[i].activeUnitY);
+    }
     _print(FPSCounter);
     _println(" - FPS");
     FPSCounter = 0;
@@ -1029,6 +1104,10 @@ void loop()
   if (isweb)
   {
     server.handleClient(); // Обработка веб сервера
+  }
+  if (wifi_is_connecting)
+  {
+    wifi_connecting_debug(actualWifiSSID);
   }
 }
 
