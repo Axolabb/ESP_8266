@@ -128,7 +128,10 @@ U8G2_SSD1315_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
 */
 
-char statusBuffer[20]; // Буффер для дисплея статуса в UI
+// char statusBuffer[20]; // Буффер для дисплея статуса в UI
+char statusBuffer_wifi[20];
+char statusBuffer_ota[20];
+char statusBuffer_file[20];
 
 const char *wifi = nullptr;  // false/ssid  ----- Для чек статуса в мейн дире
 const char *isweb = nullptr; // false/ip  ----- Для чек статуса в мейн дире
@@ -138,7 +141,7 @@ bool isOTA = false;          // false/true  ----- Для чек статуса �
 const char *actualWifiSSID;
 const char *actualWifiPassword;
 
-String scan_wifi_stringed[51];
+String scan_wifi_stringed[51]; // Даже с стрингом если внутри че то и меняется он фрагментируется
 String file_system_stringed[50];
 String read_file_stringed;
 
@@ -246,10 +249,12 @@ UIDir StorageFS_Read[array_length(file_system_stringed)] = {
 UIDir StorageFS_Read_File[1];
 
 UIDir WebServer[] = {
-    {"*Status*", nullptr, NONE, nullptr, true},
+    {"*Status_name*", nullptr, NONE, nullptr, true},
+    {"*Status_ip*", nullptr, NONE, nullptr, true},
     {"Open", nullptr, NONE, webEditStatus}};
 UIDir OTA_dir[] = {
-    {"*Status*", nullptr, NONE, nullptr, true},
+    {"*Status_nameSSID*", nullptr, NONE, nullptr, true},
+    {"*Status_nameHostDNS*", nullptr, NONE, nullptr, true},
     {"Unlock", nullptr, NONE, OTAEditStatus}};
 
 void editDir(char mode, MenuType name)
@@ -343,17 +348,19 @@ void wifi_disconnect()
 
 void checkWifiStatus()
 {
-  const char *statusAssemleText = nullptr;
+  const char *statusAssemledText = nullptr;
   if (wifi)
   {
-    strcpy(statusBuffer, "S: "); // Перезаписать первую строку
-    strcat(statusBuffer, wifi);  // Добавить. Цель - соединить 2 переменные чара
-    statusAssemleText = statusBuffer;
+    strcpy(statusBuffer_wifi, "S: "); // Перезаписать первую строку
+    strcat(statusBuffer_wifi, wifi);  // Добавить. Цель - соединить 2 переменные чара
+    statusAssemledText = statusBuffer_wifi;
   };
-  const char *status = wifi ? statusAssemleText : "S: No WiFI";
+  const char *status = wifi ? statusAssemledText : "S: No WiFI";
   WIFI[0].name = status;
   WIFI_saved[0].name = status;
   WIFI_scanned[0].name = status;
+  WebServer[0].name = status;
+  OTA_dir[0].name = status;
 }
 int count_of_scanned = 2; // Для статуса и лоадинга
 
@@ -383,18 +390,18 @@ void webEditStatus()
 {
   if (WiFi.localIP() != IPAddress(0, 0, 0, 0))
   {
-    if (strcmp(WebServer[0].name, "S: Closed") == 0)
+    if (strcmp(WebServer[1].name, "S: Closed") == 0)
     {
       server.begin();
       isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
       isweb = isweb_stringed.c_str();
-      WebServer[1].name = "Close";
+      WebServer[2].name = "Close";
     }
     else
     {
       server.stop();
       isweb = nullptr;
-      WebServer[1].name = "Open";
+      WebServer[2].name = "Open";
     }
     checkWebStatus();
   }
@@ -402,26 +409,25 @@ void webEditStatus()
 
 void checkWebStatus()
 {
-  const char *status = isweb ? isweb : "S: Closed";
-  WebServer[0].name = status;
+  const char *statusNAME = isweb ? isweb : "S: Closed";
+  WebServer[1].name = statusNAME;
 }
 
 void OTAEditStatus()
 {
   if (WiFi.localIP() != IPAddress(0, 0, 0, 0))
   {
-    if (strcmp(OTA_dir[0].name, "S: Disabled") == 0)
+    if (strcmp(OTA_dir[1].name, "S: Locked") == 0)
     {
       ArduinoOTA.begin();
-      isweb_stringed = WiFi.localIP().toString(); // Стринг должен жить вечно тк c_str просто указывет на него
       isOTA = true;
-      OTA_dir[1].name = "Lock";
+      OTA_dir[2].name = "Lock";
     }
     else
     {
       ArduinoOTA.end();
       isOTA = false;
-      OTA_dir[1].name = "Unlock";
+      OTA_dir[2].name = "Unlock";
     }
     checkOTAStatus();
   }
@@ -429,8 +435,15 @@ void OTAEditStatus()
 
 void checkOTAStatus()
 {
-  const char *status = isOTA ? "S: Enabled" : "S: Disabled";
-  OTA_dir[0].name = status;
+  const char *statusAssemledText = nullptr;
+  if (isOTA)
+  {
+    strcpy(statusBuffer_ota, "S: "); // Перезаписать первую строку
+    strcat(statusBuffer_ota, host_dns);  // Добавить. Цель - соединить 2 переменные чара
+    statusAssemledText = statusBuffer_ota;
+  };
+  const char* statusOTA = isOTA ? statusAssemledText : "S: Locked";
+  OTA_dir[1].name = statusOTA;
 }
 
 // Animation vars
@@ -793,7 +806,6 @@ void displayTools(UIDir array[], int length)
       scrollUnitY++;
     }
     scrollDisplayNow = scrollUnitY / optionsPerViewDisplay;
-
   }
   if (isPressedKey(3) && !isServiseDisplay && scrollUnitY > 0) // ^
   {
@@ -951,9 +963,9 @@ String FlashEdit(const char *path, const char *message_string, const int message
     {
       if (StorageFS_Delete[scrollUnitY].name)
       {
-        strcpy(statusBuffer, "/");                                // Перезаписать первую строку
-        strcat(statusBuffer, StorageFS_Delete[scrollUnitY].name); // Добавить. Цель - соединить 2 переменные чара
-        path = statusBuffer;
+        strcpy(statusBuffer_file, "/");                                // Перезаписать первую строку
+        strcat(statusBuffer_file, StorageFS_Delete[scrollUnitY].name); // Добавить. Цель - соединить 2 переменные чара
+        path = statusBuffer_file;
       };
     }
     const char *search_message = nullptr;
@@ -1073,6 +1085,7 @@ void setup()
   //   FlashEdit("/Some", "Hello", -1, 'w');
   // }
   ArduinoOTA.setHostname(host_dns);
+  checkWifiStatus();
 }
 // String* name_tools = other_tools;
 const long FPScounterIntervalCheck = 1000;
